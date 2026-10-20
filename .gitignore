@@ -1,0 +1,21 @@
+# Entorno virtual
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno y llaves secretas
+.env
+serviceAccountKey.json
+*.json.secret
+
+# Node / Frontend
+node_modules/
+.next/
+dist/
+build/
+.vercel

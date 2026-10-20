@@ -1,5 +1,19 @@
-fastapi==0.104.1
-pydantic==2.5.2
+# Core FastAPI and Uvicorn
+fastapi==0.110.1
+uvicorn[standard]==0.30.1
+
+# Firebase
 firebase-admin==6.2.0
+
+# Twilio
 twilio==8.10.3
+
+# Utility
 python-dotenv==1.0.0
+
+# CORS
+python-multipart==0.0.20
+
+# Security
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.0
