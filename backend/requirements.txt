@@ -1,0 +1,5 @@
+fastapi==0.104.1
+pydantic==2.5.2
+firebase-admin==6.2.0
+twilio==8.10.3
+python-dotenv==1.0.0
