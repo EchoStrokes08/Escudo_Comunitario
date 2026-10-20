@@ -5,5 +5,9 @@
   ],
   "python.autoComplete.extraPaths": [
     "${workspaceFolder}/backend"
-  ]
+  ],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
 }
