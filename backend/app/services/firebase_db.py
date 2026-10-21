@@ -10,6 +10,7 @@ Colecciones:
   indicadores/{id}             PRIVADA: veces que se reportó cada dominio/cuenta/teléfono.
   conversaciones/{seudonimo}   PRIVADA: estado de la conversación de WhatsApp.
   alertas_comunitarias/{id}    PÚBLICA (solo lectura): brotes detectados por UPZ.
+  suscriptores_alertas/{id}    PRIVADA: líderes que reciben las alertas (Telegram / WhatsApp).
 
 El backend usa la cuenta de servicio (Admin SDK), que no está sujeta a las
 reglas de Firestore; el navegador solo puede leer las colecciones públicas.
@@ -33,6 +34,7 @@ COL_REGISTROS = "registros"
 COL_INDICADORES = "indicadores"
 COL_CONVERSACIONES = "conversaciones"
 COL_ALERTAS_COMUNIDAD = "alertas_comunitarias"
+COL_SUSCRIPTORES = "suscriptores_alertas"
 
 
 @lru_cache(maxsize=1)
@@ -238,6 +240,20 @@ def alerta_comunitaria_reciente(clave: str, horas: int = 24) -> bool:
 
 def guardar_alerta_comunitaria(clave: str, datos: dict):
     obtener_db().collection(COL_ALERTAS_COMUNIDAD).document(clave).set({**datos, "fecha": ahora_iso()})
+
+
+def suscribir_lider(canal: str, destino: str, nombre: str = ""):
+    """Líder comunitario que recibe alertas tempranas (canal: 'telegram' | 'whatsapp_meta')."""
+    obtener_db().collection(COL_SUSCRIPTORES).document(f"{canal}-{destino}").set(
+        {"canal": canal, "destino": destino, "nombre": nombre[:80], "fecha": ahora_iso()})
+
+
+def desuscribir_lider(canal: str, destino: str):
+    obtener_db().collection(COL_SUSCRIPTORES).document(f"{canal}-{destino}").delete()
+
+
+def lideres_suscritos() -> list[dict]:
+    return [d.to_dict() for d in obtener_db().collection(COL_SUSCRIPTORES).limit(200).stream()]
 
 
 # --------------------------------------------------------------------------- #

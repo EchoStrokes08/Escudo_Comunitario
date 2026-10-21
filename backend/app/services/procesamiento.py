@@ -14,7 +14,7 @@ import logging
 
 from app.core.config import settings
 from app.services import firebase_db
-from app.services.alertas_comunitarias import revisar_brote
+from app.services.alertas_comunitarias import detectar_brote, emitir_alerta
 from app.services.analizador import evaluar_fraude
 from app.services.anonimizar import anonimizar_texto, enmascarar, generalizar_ubicacion
 from app.services.orientacion import nombre_tipo, plan_accion
@@ -182,12 +182,17 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         if not upz or puntaje["nivel"] == "bajo":
             return None
         try:
-            return revisar_brote(upz, tipo)
+            return detectar_brote(upz, tipo)
         except Exception as error:
             log.warning("No se pudo revisar brotes: %s", error)
             return None
 
     _, alerta = await asyncio.gather(asyncio.to_thread(_indicadores), asyncio.to_thread(_brote))
+    if alerta:
+        try:
+            alerta = await emitir_alerta(alerta)
+        except Exception as error:
+            log.warning("No se pudo emitir la alerta comunitaria: %s", error)
     anclaje = {"estado": "en_proceso"}
 
     return {

@@ -16,7 +16,7 @@ class BaseEnMemoria:
     def __init__(self):
         self.registros, self.privado, self.publico = {}, {}, {}
         self.estado = {"altura": -1, "ultimo_hash": registro.GENESIS}
-        self.indicadores, self.conversaciones, self.alertas = {}, {}, {}
+        self.indicadores, self.conversaciones, self.alertas, self.lideres = {}, {}, {}, {}
 
     def registrar_reporte(self, *, canal, reportante, mensaje, adjuntos, analisis, privado, publico, fecha=None):
         bloque = registro.construir_bloque(
@@ -76,6 +76,15 @@ class BaseEnMemoria:
 
     def guardar_alerta_comunitaria(self, clave, datos):
         self.alertas[clave] = datos
+
+    def suscribir_lider(self, canal, destino, nombre=""):
+        self.lideres[f"{canal}-{destino}"] = {"canal": canal, "destino": destino, "nombre": nombre}
+
+    def desuscribir_lider(self, canal, destino):
+        self.lideres.pop(f"{canal}-{destino}", None)
+
+    def lideres_suscritos(self):
+        return list(self.lideres.values())
 
 
 @pytest.fixture

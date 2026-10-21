@@ -32,9 +32,12 @@ async def estado(probar_ia: bool = False):
             "urlhaus": "activa" if settings.URLHAUS_AUTH_KEY else "no configurada",
             "google_safe_browsing": "activa" if settings.GOOGLE_SAFE_BROWSING_KEY else "no configurada",
         },
-        "whatsapp": {
-            "firma_twilio": bool(settings.TWILIO_AUTH_TOKEN and settings.TWILIO_VALIDAR_FIRMA),
-            "alertas_a_lideres": bool(settings.LIDERES_WHATSAPP and settings.TWILIO_WHATSAPP_FROM),
+        "canales": {
+            "web": True,
+            "chat_web": True,
+            "telegram": bool(settings.TELEGRAM_BOT_TOKEN),
+            "whatsapp_meta": bool(settings.META_WHATSAPP_TOKEN and settings.META_PHONE_NUMBER_ID),
+            "whatsapp_twilio": bool(settings.TWILIO_AUTH_TOKEN),
         },
         "autoridades": bool(settings.AUTORIDADES_TOKEN),
     }
@@ -43,6 +46,10 @@ async def estado(probar_ia: bool = False):
         resultado["cadena"] = {"bloques": cadena.get("altura", -1) + 1, "ultimo_hash": cadena.get("ultimo_hash")}
     except Exception as error:
         resultado["cadena"] = {"error": type(error).__name__}
+    try:
+        resultado["lideres_suscritos"] = len(firebase_db.lideres_suscritos())
+    except Exception:
+        resultado["lideres_suscritos"] = None
     if probar_ia:
         resultado["ia"]["prueba"] = await diagnosticar_llm()
     return resultado

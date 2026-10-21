@@ -1,3 +1,4 @@
+import hashlib
 import os
 import json
 from pathlib import Path
@@ -138,6 +139,21 @@ class Settings:
     TWILIO_WEBHOOK_URL = os.getenv("TWILIO_WEBHOOK_URL")
     # Remitente para alertas salientes, ej: whatsapp:+14155238886 (sandbox)
     TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")
+
+    # --- Telegram (canal gratuito: bot creado con @BotFather) ---
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    # Secreto del webhook: si no se define, se deriva del token (una sola variable que configurar)
+    TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET") or (
+        hashlib.sha256(f"escudo:{TELEGRAM_BOT_TOKEN}".encode()).hexdigest()[:40] if TELEGRAM_BOT_TOKEN else None
+    )
+
+    # --- WhatsApp oficial de Meta (Cloud API, número de prueba gratuito) ---
+    META_WHATSAPP_TOKEN = os.getenv("META_WHATSAPP_TOKEN")
+    META_PHONE_NUMBER_ID = os.getenv("META_PHONE_NUMBER_ID")
+    # Texto que se pega en Meta > WhatsApp > Configuración > Webhook > "Token de verificación"
+    META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "escudo-comunitario-bosa")
+    META_APP_SECRET = os.getenv("META_APP_SECRET")  # opcional: valida la firma X-Hub-Signature-256
+    META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v23.0")
 
     # --- Alertas comunitarias (brotes por UPZ) ---
     # Números de líderes comunitarios separados por comas: whatsapp:+57300...
