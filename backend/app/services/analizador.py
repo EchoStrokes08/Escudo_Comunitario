@@ -232,8 +232,10 @@ async def _llamar_gemini(modelo: str, texto: str, adjuntos: list[dict], clave: s
     }
     async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
         resp = await client.post(url, json=payload, headers={"x-goog-api-key": clave})
-    if resp.status_code == 404:
-        raise ModeloNoDisponible(f"Gemini: modelo '{modelo}' no disponible (404)")
+    # Modelo retirado (404), saturado (503/500) o sin cuota propia (429): se prueba el siguiente modelo.
+    # 401/403 son problemas de la clave: se pasa a la siguiente clave.
+    if resp.status_code in (404, 429, 500, 503):
+        raise ModeloNoDisponible(f"Gemini: modelo '{modelo}' no disponible ({resp.status_code})")
     resp.raise_for_status()
     data = resp.json()
     partes_resp = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])

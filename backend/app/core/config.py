@@ -86,9 +86,9 @@ class Settings:
     GEMINI_API_KEYS = _parse_lista(os.getenv("GEMINI_API_KEY"))
     # Modelo preferido; si no existe (p. ej. gemini-1.5-flash, ya retirado) se prueban
     # los de GEMINI_MODELOS_RESPALDO en orden y se recuerda el primero que funcione
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip()
     GEMINI_MODELOS_RESPALDO = _parse_lista(
-        os.getenv("GEMINI_MODELOS_RESPALDO", "gemini-flash-latest,gemini-3.8-flash,gemini-3.5-flash,gemini-flash-lite-latest,gemini-2.5-flash")
+        os.getenv("GEMINI_MODELOS_RESPALDO", "gemini-3.5-flash,gemini-flash-lite-latest,gemini-flash-latest,gemini-3.8-flash")
     )
 
     OPENAI_API_KEYS = _parse_lista(os.getenv("OPENAI_API_KEY"))
