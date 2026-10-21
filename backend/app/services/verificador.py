@@ -272,6 +272,13 @@ def _indicadores(texto: str, extra: dict | None) -> tuple[list[str], list[str], 
     return urls, dominios, cuentas[:10], telefonos
 
 
+def claves_indicadores(texto: str, indicadores_extra: dict | None = None) -> list[tuple[str, str]]:
+    """(tipo, valor) de los dominios, cuentas y teléfonos, sin consultar la red."""
+    _urls, dominios, cuentas, telefonos = _indicadores(texto, indicadores_extra)
+    return [("dominio", dominio_registrable(d)) for d in dominios] + \
+           [("cuenta", c["valor"]) for c in cuentas] + [("telefono", t) for t in telefonos]
+
+
 async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
                             historial=None, timeout_red: float | None = None) -> dict:
     """

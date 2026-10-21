@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Icono from '../components/Icono.jsx'
-import { auditarCadena, sha256Texto, urlPruebaOts, urlRegistroJson, verificarCertificado } from '../services/api.js'
+import { auditarCadena, sellarCertificado, sha256Texto, urlPruebaOts, urlRegistroJson, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
 
 function Auditoria() {
@@ -95,7 +95,14 @@ export default function Verificar() {
         setError(null)
         setDatos(null)
         verificarCertificado(codigo)
-            .then(setDatos)
+            .then(async d => {
+                setDatos(d)
+                // Si el sello en Bitcoin quedó pendiente, se completa ahora y se recarga
+                if (d.integro && !d.anclaje.descargable) {
+                    await sellarCertificado(d.certificado).catch(() => null)
+                    setDatos(await verificarCertificado(d.certificado).catch(() => d))
+                }
+            })
             .catch(e => setError(e.message))
             .finally(() => setCargando(false))
     }, [codigo])
@@ -191,7 +198,7 @@ export default function Verificar() {
                                         <a className="boton boton-secundario" href={urlPruebaOts(datos.certificado)}><Icono nombre="descargar" /> prueba .ots</a>
                                     </div>
                                 </>
-                            ) : <p className="texto-suave">El sello externo está pendiente; se reintentará automáticamente.</p>}
+                            ) : <p className="texto-suave"><span className="spinner spinner-pequeno" /> Sellando en Bitcoin vía OpenTimestamps…</p>}
                         </div>
 
                         <CompararMensaje hashMensaje={b.hash_mensaje} />

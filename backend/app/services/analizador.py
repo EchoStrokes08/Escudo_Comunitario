@@ -1,9 +1,10 @@
 """
 Agente de detección de fraude multimodal.
 
-Integra un LLM real (Google Gemini como principal, OpenAI como respaldo) vía
-HTTP para analizar texto, imágenes (capturas de chats, facturas falsas), PDFs
-y notas de voz. Devuelve un JSON estructurado con:
+Integra LLMs reales vía HTTP, en cascada: Groq (Qwen para texto e imágenes,
+Whisper para notas de voz; respuesta en ~1-3 s) → Google Gemini → OpenAI
+(opcional) → análisis heurístico local. Analiza texto, imágenes (capturas de
+chats, facturas falsas), PDFs y notas de voz. Devuelve un JSON estructurado con:
     - nivel_riesgo: int (0-100)
     - certeza: int (0-100)        seguridad del propio modelo en su veredicto
     - tipo_fraude: str            ver services.orientacion.TIPOS_FRAUDE
@@ -264,6 +265,78 @@ async def _analizar_con_gemini(texto: str, adjuntos: list[dict], clave: str) -> 
     raise ultimo_error or RuntimeError("Gemini: sin modelos configurados")
 
 
+_GROQ_URL = "https://api.groq.com/openai/v1"
+
+
+async def _transcribir_groq(client: httpx.AsyncClient, adjunto: dict, clave: str) -> str:
+    """Nota de voz → texto con Whisper en Groq (~1-2 s)."""
+    extension = {"audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/wav": "wav"}.get(adjunto["mime"], "ogg")
+    resp = await client.post(
+        f"{_GROQ_URL}/audio/transcriptions",
+        headers={"Authorization": f"Bearer {clave}"},
+        data={"model": settings.GROQ_MODELO_AUDIO, "language": "es", "response_format": "json"},
+        files={"file": (f"nota.{extension}", adjunto["datos"], adjunto["mime"])},
+    )
+    resp.raise_for_status()
+    return (resp.json().get("text") or "").strip()
+
+
+async def _analizar_con_groq(texto: str, adjuntos: list[dict], clave: str) -> tuple[dict | None, str]:
+    """
+    Groq (API compatible con OpenAI): Whisper transcribe el audio, Qwen analiza el texto y
+    las capturas. Los PDF/TXT viajan como texto extraído. Si un modelo no está disponible se
+    prueba el siguiente; los de solo-texto no se usan cuando hay imágenes.
+    """
+    imagenes = [a for a in adjuntos if a["mime"].startswith("image/")]
+    audios = [a for a in adjuntos if es_audio(a["mime"])]
+    textos = [f"[{a['nombre']}]\n{a['texto_extraido']}" for a in adjuntos if a.get("texto_extraido")]
+
+    async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+        transcripciones = []
+        if audios:
+            transcripciones = await asyncio.gather(*[_transcribir_groq(client, a, clave) for a in audios])
+            transcripciones = [t for t in transcripciones if t]
+            textos += [f"[Transcripción de la nota de voz]\n{t}" for t in transcripciones]
+
+        candidatos = [settings.GROQ_MODEL, *settings.GROQ_MODELOS_RESPALDO]
+        if imagenes:
+            candidatos = [m for m in candidatos if m in settings.GROQ_MODELOS_VISION]
+        ultimo_error: Exception | None = None
+        for modelo in dict.fromkeys(candidatos):
+            contenido: list[dict] | str = _evidencia(texto, _texto_de_adjuntos(textos))
+            if imagenes:
+                contenido = [{"type": "text", "text": contenido}] + [
+                    a_parte_openai(a["mime"], a["datos"]) for a in imagenes
+                ]
+            payload = {
+                "model": modelo,
+                "temperature": 0.1,
+                # El JSON ocupa ~300 tokens; Groq descuenta lo reservado del límite por minuto
+                "max_completion_tokens": 900,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": PROMPT_SISTEMA},
+                    {"role": "user", "content": contenido},
+                ],
+            }
+            if modelo.startswith("openai/gpt-oss"):
+                payload["reasoning_effort"] = "low"  # modelos de razonamiento: respuesta rápida
+            resp = await client.post(f"{_GROQ_URL}/chat/completions", json=payload,
+                                     headers={"Authorization": f"Bearer {clave}"})
+            if resp.status_code in (404, 429, 500, 502, 503) or (
+                    resp.status_code == 400 and "model" in resp.text.lower()):
+                ultimo_error = ModeloNoDisponible(f"Groq: modelo '{modelo}' no disponible ({resp.status_code})")
+                log.warning(str(ultimo_error))
+                continue
+            resp.raise_for_status()
+            resultado = _extraer_json(resp.json()["choices"][0]["message"]["content"])
+            # Lo que dijo la persona en el audio es la evidencia: se conserva aunque el modelo no lo repita
+            if resultado is not None and transcripciones and not str(resultado.get("texto_detectado") or "").strip():
+                resultado["texto_detectado"] = " ".join(transcripciones)
+            return resultado, modelo
+    raise ultimo_error or RuntimeError("Groq: sin modelos que acepten este contenido")
+
+
 async def _analizar_con_openai(texto: str, adjuntos: list[dict], clave: str) -> tuple[dict | None, str]:
     """
     OpenAI: acepta imágenes como data URIs. Los PDFs se envían como texto extraído;
@@ -298,7 +371,9 @@ async def _analizar_con_openai(texto: str, adjuntos: list[dict], clave: str) -> 
     return _extraer_json(resp.json()["choices"][0]["message"]["content"]), settings.OPENAI_MODEL
 
 
+# Orden de respaldo: el proveedor preferido primero y luego este orden; el heurístico siempre al final
 _PROVEEDORES = {
+    "groq": lambda: (_analizar_con_groq, settings.GROQ_API_KEYS),
     "gemini": lambda: (_analizar_con_gemini, settings.GEMINI_API_KEYS),
     "openai": lambda: (_analizar_con_openai, settings.OPENAI_API_KEYS),
 }
@@ -336,7 +411,9 @@ def analisis_heuristico(texto: str, adjuntos: list[dict] | None = None) -> dict:
         "tipo_fraude": tipo,
         "entidad_suplantada": "",
         "flags": flags,
-        "resumen": "Análisis local de respaldo: detectamos señales típicas de fraude en el texto."
+        "resumen": "No pudimos leer tu archivo o audio en este momento. Inténtalo de nuevo en un minuto "
+                   "o pega el texto del mensaje." if adjuntos and sin_texto_util else
+        "Análisis local de respaldo: detectamos señales típicas de fraude en el texto."
         if riesgo >= UMBRAL_MEDIO else
         "Análisis local de respaldo: no vemos señales fuertes, pero verifica por canales oficiales.",
         "texto_detectado": "",
@@ -434,6 +511,7 @@ async def diagnosticar_llm() -> dict:
         "errores": resultado.get("errores_llm", []),
         "nivel_riesgo_prueba": resultado["nivel_riesgo"],
         "claves_configuradas": {
+            "groq": len(settings.GROQ_API_KEYS),
             "gemini": len(settings.GEMINI_API_KEYS),
             "openai": len(settings.OPENAI_API_KEYS),
         },

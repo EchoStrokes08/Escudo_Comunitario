@@ -6,12 +6,15 @@ Verificación pública de certificados y auditoría de la cadena.
   GET  /api/verificar/{hash}/prueba.ots      Prueba OpenTimestamps (verificable en opentimestamps.org)
   GET  /api/cadena/estado                    Altura y último hash de la cadena
   GET  /api/cadena/auditoria                 Recalcula TODOS los hashes y enlaces
+  POST /api/cadena/sellar/{hash}             Sella el bloque en Bitcoin (público, idempotente)
   POST /api/cadena/anclar-pendientes         Reintenta anclar bloques sin sello (requiere token)
 """
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from app.core.config import settings
+from app.core.limite import limitar_por_ip
 from app.services import firebase_db
+from app.services.procesamiento import sellar
 from app.services.registro import (
     CAMPOS_BLOQUE, GENESIS, anclar_opentimestamps, archivo_ots, canonico, verificar_bloque, verificar_cadena,
 )
@@ -107,6 +110,21 @@ def auditoria():
     anclados = sum(1 for b in bloques if (b.get("anclaje") or {}).get("prueba_b64"))
     return {**resultado, "anclados": anclados,
             "ultimo_hash": bloques[-1]["hash"] if bloques else None}
+
+
+@router.post("/cadena/sellar/{codigo}")
+async def sellar_bloque(codigo: str, request: Request):
+    """
+    Sella un bloque en Bitcoin (OpenTimestamps). Público e idempotente: el frontend lo llama
+    justo después de mostrar el veredicto para que la persona no espere los ~2 s del sello.
+    """
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    limitar_por_ip(f"sello:{ip}")
+    bloque = _bloque_o_404(codigo)
+    anclaje = bloque.get("anclaje") or {}
+    if not anclaje.get("prueba_b64"):
+        anclaje = await sellar(bloque["hash"])
+    return {"certificado": bloque["hash"], "estado": anclaje.get("estado"), "calendario": anclaje.get("calendario")}
 
 
 @router.post("/cadena/anclar-pendientes")

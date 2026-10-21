@@ -122,6 +122,10 @@ def test_reporte_web_completo(cliente):
     # Certificado verificable y archivos descargables
     v = api.get(f"/api/verificar/{d['certificado'][:16]}").json()
     assert v["integro"] and v["enlaces"]["anterior_valido"]
+    # El sello en Bitcoin no hace esperar al ciudadano: se pide después del veredicto
+    assert d["anclaje"]["estado"] == "en_proceso"
+    assert api.get(f"/api/verificar/{d['certificado']}/prueba.ots").status_code == 404
+    assert api.post(f"/api/cadena/sellar/{d['certificado']}").json()["estado"] == "pendiente_bitcoin"
     assert api.get(f"/api/verificar/{d['certificado']}/prueba.ots").status_code == 200
     canon = api.get(f"/api/verificar/{d['certificado']}/registro.json").content
     import hashlib
@@ -154,6 +158,7 @@ def test_whatsapp_conversacional(cliente):
     h = next(iter(base.registros))
     assert base.publico[h]["upz"] is None
     assert "3001112233" not in str(base.privado[h])  # el teléfono de la víctima no se guarda
+    assert base.registros[h]["anclaje"].get("prueba_b64")  # en WhatsApp se sella en línea
 
     r = api.post("/api/whatsapp/webhook", data={"From": "whatsapp:+573001112233", "Body": "5", "NumMedia": "0"})
     assert "Tintal Sur" in r.text and base.publico[h]["upz"] == "Tintal Sur"

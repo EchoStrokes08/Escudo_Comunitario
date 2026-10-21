@@ -79,8 +79,17 @@ class Settings:
                     continue
 
     # --- LLM (detección avanzada) ---
-    # Proveedor seleccionable: "gemini" | "openai" | "heuristico"
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    # Proveedor inicial: "groq" | "gemini" | "openai" | "heuristico". Los demás con clave quedan
+    # de respaldo en el orden groq → gemini → openai, y el heurístico local siempre al final.
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+
+    # Groq (inferencia muy rápida): Qwen lee texto e imágenes; Whisper transcribe las notas de voz
+    GROQ_API_KEYS = _parse_lista(os.getenv("GROQ_API_KEY"))
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+    # Respaldo dentro de Groq (solo texto: si hay imágenes y falla el principal, pasa a Gemini)
+    GROQ_MODELOS_RESPALDO = _parse_lista(os.getenv("GROQ_MODELOS_RESPALDO", "openai/gpt-oss-120b,openai/gpt-oss-20b"))
+    GROQ_MODELOS_VISION = _parse_lista(os.getenv("GROQ_MODELOS_VISION", "qwen/qwen3.8-27b"))
+    GROQ_MODELO_AUDIO = os.getenv("GROQ_MODELO_AUDIO", "whisper-large-v3-turbo").strip()
 
     # Admiten varias claves separadas por comas: si una se queda sin cuota o falla, se usa la siguiente
     GEMINI_API_KEYS = _parse_lista(os.getenv("GEMINI_API_KEY"))

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Icono from '../components/Icono.jsx'
 import CodigoQR from '../components/CodigoQR.jsx'
-import { verificarCertificado } from '../services/api.js'
+import { sellarCertificado, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
 
 /** Certificado de reporte imprimible (Ctrl+P → Guardar como PDF) con QR de verificación. */
@@ -12,7 +12,15 @@ export default function Certificado() {
     const [error, setError] = useState(null)
 
     useEffect(() => {
-        verificarCertificado(codigo).then(setDatos).catch(e => setError(e.message))
+        verificarCertificado(codigo)
+            .then(async d => {
+                setDatos(d)
+                if (d.integro && !d.anclaje.descargable) {
+                    await sellarCertificado(d.certificado).catch(() => null)
+                    setDatos(await verificarCertificado(d.certificado).catch(() => d))
+                }
+            })
+            .catch(e => setError(e.message))
     }, [codigo])
 
     if (error) return <p className="aviso aviso-error"><Icono nombre="alerta" tamano={16} /> {error}</p>

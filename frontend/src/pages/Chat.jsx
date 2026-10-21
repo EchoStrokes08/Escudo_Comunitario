@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Icono from '../components/Icono.jsx'
 import GrabadorVoz from '../components/GrabadorVoz.jsx'
-import { pedir } from '../services/api.js'
+import { pedir, sellarCertificado } from '../services/api.js'
 
 const CLAVE_SESION = 'escudo-chat-sesion'
 const MAX_PESO = 2 * 1024 * 1024
@@ -84,6 +84,8 @@ export default function Chat() {
                 setMensajes(prev => [...prev, { de: 'bot', texto: m, hora: hora() }])
             }
             setOpciones(r.opciones || [])
+            // Sello en Bitcoin en segundo plano: la respuesta ya se mostró
+            if (r.certificado) sellarCertificado(r.certificado).catch(() => {})
         } catch (e) {
             setError(e.message)
         } finally {

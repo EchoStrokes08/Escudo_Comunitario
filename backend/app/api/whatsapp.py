@@ -30,7 +30,7 @@ from app.services import firebase_db
 from app.services.anonimizar import generalizar_ubicacion, seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, obtener_coordenadas
-from app.services.procesamiento import procesar_reporte
+from app.services.procesamiento import procesar_reporte, sellar
 from app.services.registro import certificado_corto, verificar_bloque
 
 router = APIRouter()
@@ -162,7 +162,7 @@ def _responder_verificacion(texto: str) -> list[str]:
 
 
 async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float | None, lng: float | None,
-                    canal: str) -> dict:
+                    canal: str, sellar_en_linea: bool = False) -> dict:
     """
     Un turno de la conversación, compartido por el webhook de Twilio y el simulador web.
     Retorna {"mensajes": [...], "opciones": [...], "certificado": str | None}.
@@ -214,6 +214,9 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
         mensaje=texto, adjuntos=adjuntos, canal=canal, reportante=usuario,
         upz=None, lat=None, lng=None, rapido=True,
     )
+    if sellar_en_linea:
+        # En WhatsApp nadie abre la página que pide el sello: se sella aquí (hay margen en los 15 s)
+        await sellar(resultado["certificado"], timeout=2.5)
 
     try:
         firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": resultado["certificado"]})
@@ -236,7 +239,7 @@ async def recibir_whatsapp(request: Request):
     turno = await conversar(
         usuario=seudonimo(params.get("From", "")), texto=params.get("Body") or "", crudos=crudos,
         lat=float(lat_txt) if lat_txt else None, lng=float(lng_txt) if lng_txt else None,
-        canal="whatsapp",
+        canal="whatsapp", sellar_en_linea=True,
     )
     return _twiml(*turno["mensajes"])
 

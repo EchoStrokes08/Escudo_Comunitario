@@ -17,8 +17,10 @@ async def estado(probar_ia: bool = False):
         "servicio": "Escudo Comunitario - Bosa",
         "ia": {
             "proveedor_preferido": settings.LLM_PROVIDER,
-            "modelo_configurado": settings.GEMINI_MODEL,
-            "claves": {"gemini": len(settings.GEMINI_API_KEYS), "openai": len(settings.OPENAI_API_KEYS)},
+            "modelos": {"groq": settings.GROQ_MODEL, "groq_audio": settings.GROQ_MODELO_AUDIO,
+                        "gemini": settings.GEMINI_MODEL},
+            "claves": {"groq": len(settings.GROQ_API_KEYS), "gemini": len(settings.GEMINI_API_KEYS),
+                       "openai": len(settings.OPENAI_API_KEYS)},
             "ultimo_uso": ESTADO_LLM,
         },
         "fuentes_abiertas": {

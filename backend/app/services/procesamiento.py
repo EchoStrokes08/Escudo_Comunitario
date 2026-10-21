@@ -20,7 +20,7 @@ from app.services.anonimizar import anonimizar_texto, enmascarar, generalizar_ub
 from app.services.orientacion import nombre_tipo, plan_accion
 from app.services.puntuacion import calcular
 from app.services.registro import anclar_opentimestamps
-from app.services.verificador import verificar_mensaje
+from app.services.verificador import claves_indicadores, verificar_mensaje
 
 log = logging.getLogger("escudo.procesamiento")
 
@@ -60,13 +60,28 @@ def _historial(claves):
 
 
 # Presupuestos de tiempo (s) para WhatsApp: Twilio abandona el webhook a los 15 s
-_RAPIDO = {"llm": 8.5, "red": 2.5, "ots": 2.0}
+_RAPIDO = {"llm": 8.5, "red": 2.5}
+
+
+async def sellar(certificado: str, timeout: float | None = None) -> dict:
+    """
+    Ancla el bloque en Bitcoin vía OpenTimestamps (~2 s). No bloquea la respuesta al
+    ciudadano: el frontend lo pide justo después de mostrar el veredicto
+    (POST /api/cadena/sellar/{hash}). Mientras tanto el bloque ya está protegido por la
+    cadena de hashes, y cualquier sello posterior de la cadena lo cubre también.
+    """
+    anclaje = await anclar_opentimestamps(certificado, timeout=timeout)
+    try:
+        firebase_db.guardar_anclaje(certificado, anclaje)
+    except Exception as error:
+        log.warning("No se pudo guardar el anclaje: %s", error)
+    return anclaje
 
 
 async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
                            upz: str | None, lat: float | None, lng: float | None,
                            rapido: bool = False) -> dict:
-    t = _RAPIDO if rapido else {"llm": None, "red": None, "ots": None}
+    t = _RAPIDO if rapido else {"llm": None, "red": None}
 
     # 1-2. IA y verificación del texto escrito, en paralelo
     analisis, verif_texto = await asyncio.gather(
@@ -74,10 +89,11 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         verificar_mensaje(mensaje, historial=_historial, timeout_red=t["red"]),
     )
 
-    # 3. Lo que la IA leyó en capturas/PDF/audio también se verifica
+    # 3. Lo que la IA leyó en capturas/PDF/audio también se verifica, solo si trae indicadores nuevos
     leido = analisis.get("texto_detectado", "")
     extra = analisis.get("indicadores") or {}
-    if leido or any(extra.values()):
+    nuevos = set(claves_indicadores(leido, extra)) - set(verif_texto["indicadores"])
+    if nuevos:
         verif_adjuntos = await verificar_mensaje(leido, indicadores_extra=extra, historial=_historial,
                                                  timeout_red=t["red"])
         verificacion = _fusionar_verificaciones(verif_texto, verif_adjuntos)
@@ -154,22 +170,25 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
     )
     certificado = bloque["hash"]
 
-    # 6-7. Anclaje externo, historial comunitario y brotes (sin bloquear si fallan)
-    anclaje = await anclar_opentimestamps(certificado, timeout=t["ots"])
-    try:
-        firebase_db.guardar_anclaje(certificado, anclaje)
-    except Exception as error:
-        log.warning("No se pudo guardar el anclaje: %s", error)
-    try:
-        firebase_db.incrementar_indicadores(indicadores, upz, certificado)
-    except Exception as error:
-        log.warning("No se pudo actualizar indicadores: %s", error)
-    alerta = None
-    if upz and puntaje["nivel"] != "bajo":
+    # 6. Historial comunitario y brotes, en paralelo y sin bloquear si fallan.
+    #    El sello en Bitcoin se pide después (sellar), para no hacer esperar a la persona.
+    def _indicadores():
         try:
-            alerta = revisar_brote(upz, tipo)
+            firebase_db.incrementar_indicadores(indicadores, upz, certificado)
+        except Exception as error:
+            log.warning("No se pudo actualizar indicadores: %s", error)
+
+    def _brote():
+        if not upz or puntaje["nivel"] == "bajo":
+            return None
+        try:
+            return revisar_brote(upz, tipo)
         except Exception as error:
             log.warning("No se pudo revisar brotes: %s", error)
+            return None
+
+    _, alerta = await asyncio.gather(asyncio.to_thread(_indicadores), asyncio.to_thread(_brote))
+    anclaje = {"estado": "en_proceso"}
 
     return {
         "id": certificado,
