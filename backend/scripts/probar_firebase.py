@@ -15,6 +15,11 @@ from pathlib import Path
 
 # Permite ejecutar el script desde /backend sin instalar el paquete app
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from app.services.firebase_db import db  # noqa: E402
 

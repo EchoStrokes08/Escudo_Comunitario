@@ -47,7 +47,18 @@ class ReporteWeb(BaseModel):
     canal: str = "web"
 
 
+@router.get("/reporte-web")
+@router.get("/reporte-web/")
+def info_reporte_web():
+    return {
+        "status": "online",
+        "metodo": "POST",
+        "detalle": "Canal de denuncia web activo. Envía un POST con el JSON del reporte.",
+    }
+
+
 @router.post("/reporte-web")
+@router.post("/reporte-web/")
 async def reportar_mensaje(reporte: ReporteWeb):
     mensaje = reporte.mensaje.strip()
     adjuntos_crudos = [a.model_dump() for a in reporte.adjuntos]
