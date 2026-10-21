@@ -38,6 +38,10 @@ class Settings:
     # Segundos máximos de espera al LLM antes de caer al análisis heurístico
     LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "15"))
 
+    # --- Archivos adjuntos (multimodal) ---
+    MAX_ARCHIVOS = int(os.getenv("MAX_ARCHIVOS", "3"))
+    MAX_PESO_MB = int(os.getenv("MAX_PESO_MB", "2"))
+
     # --- CORS ---
     # Lista separada por comas. Ej: https://escudo-comunitario.vercel.app,http://localhost:5173
     CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]

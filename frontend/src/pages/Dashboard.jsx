@@ -4,6 +4,7 @@ import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import MapaCalor from '../components/MapaCalor.jsx'
 import { nivelRiesgo } from '../utils/riesgo.js'
+import { dentroDeBosa } from '../data/bosaPolygon.js'
 
 export default function Dashboard() {
     const [alertas, setAlertas] = useState([])
@@ -22,11 +23,15 @@ export default function Dashboard() {
     }, [])
 
     const estadisticas = useMemo(() => {
-        const total = alertas.length
-        const alto = alertas.filter(a => (a.nivel_riesgo || 0) >= 70).length
-        const medio = alertas.filter(a => (a.nivel_riesgo || 0) >= 40 && (a.nivel_riesgo || 0) < 70).length
+        // Solo reportes con coordenadas estrictamente dentro de Bosa
+        const enBosa = alertas.filter(a =>
+            typeof a.lat === 'number' && typeof a.lng === 'number' && dentroDeBosa(a.lat, a.lng)
+        )
+        const total = enBosa.length
+        const alto = enBosa.filter(a => (a.nivel_riesgo || 0) >= 70).length
+        const medio = enBosa.filter(a => (a.nivel_riesgo || 0) >= 40 && (a.nivel_riesgo || 0) < 70).length
         const promedio = total
-            ? Math.round(alertas.reduce((suma, a) => suma + (a.nivel_riesgo || 0), 0) / total)
+            ? Math.round(enBosa.reduce((suma, a) => suma + (a.nivel_riesgo || 0), 0) / total)
             : 0
         return { total, alto, medio, promedio }
     }, [alertas])
@@ -61,7 +66,7 @@ export default function Dashboard() {
             </section>
 
             <div className="panel-mapa">
-                <h3>Mapa de calor · Bosa</h3>
+                <h3>Mapa de calor · Localidad de Bosa</h3>
                 {cargando ? (
                     <p className="texto-suave">Cargando reportes…</p>
                 ) : (
@@ -104,8 +109,11 @@ export default function Dashboard() {
                                     )}
 
                                     <div className="reporte-pie">
-                                        <span>📍 {alerta.barrio || 'Bosa'}</span>
+                                        <span>📍 UPZ {alerta.upz || alerta.barrio || 'Bosa'}</span>
                                         <span>💬 {alerta.canal || 'whatsapp'}</span>
+                                        {alerta.adjuntos?.length > 0 && (
+                                            <span>📎 {alerta.adjuntos.length} archivo{alerta.adjuntos.length > 1 ? 's' : ''}</span>
+                                        )}
                                         <span>
                                             🕒 {new Date(alerta.fecha).toLocaleString('es-CO')}
                                         </span>

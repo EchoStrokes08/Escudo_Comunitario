@@ -214,8 +214,97 @@ h3 { margin: 2rem 0 1rem; }
 }
 .formulario textarea:focus,
 .formulario select:focus { outline: 2px solid var(--cyan); }
-.formulario .boton { margin-top: 1.25rem; }
 .error { color: var(--rojo); font-weight: 600; }
+
+/* ---------- Componente de Geolocalización GPS y UPZ ---------- */
+.geo-caja {
+    background: var(--panel-2);
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.geo-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.geo-titulo {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--texto);
+}
+.geo-descripcion {
+    margin: 0.2rem 0 0;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    max-width: 520px;
+}
+.geo-boton {
+    padding: 0.5rem 0.9rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    border-radius: 6px;
+    cursor: pointer;
+    background: var(--panel);
+    border: 1px solid var(--cyan-claro);
+    color: var(--cyan-claro);
+    transition: all 0.2s ease;
+}
+.geo-boton:hover:not(:disabled) {
+    background: var(--cyan);
+    color: #fff;
+    border-color: var(--cyan);
+}
+.geo-alerta {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+.geo-alerta-contenido {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+.geo-alerta-exito {
+    background: rgba(14, 116, 144, 0.15);
+    border: 1px solid var(--cyan-claro);
+    color: #e0f2fe;
+}
+.geo-alerta-aviso {
+    background: rgba(154, 107, 0, 0.15);
+    border: 1px solid var(--amarillo);
+    color: #fef08a;
+}
+.geo-alerta-error {
+    background: rgba(195, 56, 31, 0.15);
+    border: 1px solid var(--rojo);
+    color: #fecaca;
+}
+.geo-limpiar-btn {
+    background: transparent;
+    border: none;
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+}
+.geo-limpiar-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
+}
 
 /* ---------- Veredicto ---------- */
 .veredicto {
@@ -268,6 +357,88 @@ h3 { margin: 2rem 0 1rem; }
 }
 .certificado-caja p { font-size: 0.85rem; margin: 0.5rem 0 0; }
 .certificado-caja a { color: var(--cyan-claro); }
+
+/* ---------- Adjuntos (drag & drop) ---------- */
+.zona-arrastre {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    text-align: center;
+    border: 2px dashed var(--borde);
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--texto-suave);
+    padding: 1.5rem 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.zona-arrastre:hover,
+.zona-arrastre.arrastrando {
+    border-color: var(--cyan-claro);
+    background: rgba(14, 116, 144, 0.12);
+    color: var(--texto);
+}
+.zona-arrastre-icono { font-size: 1.75rem; }
+.zona-arrastre strong { color: var(--cyan-claro); }
+
+.lista-adjuntos {
+    list-style: none;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.adjunto {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--panel-2);
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+}
+.adjunto-miniatura {
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--borde);
+}
+.adjunto-icono { font-size: 1.5rem; }
+.adjunto-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.adjunto-info strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+}
+.adjunto-info small { color: var(--texto-suave); }
+.adjunto-eliminar {
+    background: transparent;
+    border: 1px solid var(--borde);
+    color: var(--texto-suave);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+}
+.adjunto-eliminar:hover { border-color: var(--rojo); color: var(--rojo); }
+
+.adjuntos-analizados {
+    margin-top: 1rem;
+    border-top: 1px solid var(--borde);
+    padding-top: 1rem;
+}
+.adjuntos-analizados h4 { margin: 0 0 0.5rem; }
+.adjuntos-analizados p { margin: 0.4rem 0; font-size: 0.9rem; }
+.adjuntos-analizados small {
+    color: var(--texto-suave);
+    font-family: monospace;
+    word-break: break-all;
+}
 
 /* Leaflet en contenedor oscuro */
 .leaflet-popup-content-wrapper, .leaflet-popup-tip {

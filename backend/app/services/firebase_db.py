@@ -28,9 +28,12 @@ def guardar_alerta(
     lat: float | None = None,
     lng: float | None = None,
     barrio: str | None = None,
+    upz: str | None = None,
     motor: str = "",
+    adjuntos: list | None = None,
 ) -> str:
     """Persiste un reporte en Firestore (colección alertas_bosa)."""
+    upz_final = upz or barrio or "Bosa Central"
     doc_ref = db.collection("alertas_bosa").document()
     doc_ref.set({
         "telefono": telefono,
@@ -45,8 +48,10 @@ def guardar_alerta(
         "verificacion": verificacion or {},
         "lat": lat,
         "lng": lng,
-        "barrio": barrio or "Bosa Centro",
+        "upz": upz_final,
+        "barrio": upz_final,
         "motor": motor,
+        "adjuntos": adjuntos or [],  # metadatos + sha256 (sin binarios)
     })
     return doc_ref.id
 

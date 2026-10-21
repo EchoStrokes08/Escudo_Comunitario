@@ -6,11 +6,12 @@ Ecosistema de prevención de fraude digital para la Localidad de Bosa (Hackathon
 
 | Capacidad | Implementación |
 |---|---|
-| Detección con IA | `backend/app/services/analizador.py` — integración real con Google Gemini u OpenAI (JSON: `nivel_riesgo` 0-100 + `flags`), con fallback heurístico local |
+| Detección con IA | `backend/app/services/analizador.py` — agente multimodal (Gemini 1.5 Flash principal, GPT-4o respaldo): texto + imágenes (OCR visual de capturas) + PDFs (facturas falsas), con `nivel_riesgo` 0-100 + `flags` y fallback heurístico local |
+| Soporte de archivos | `backend/app/services/archivos.py` — validación MIME + magic bytes + peso (env `MAX_PESO_MB`/`MAX_ARCHIVOS`), Base64 inline al LLM, extracción de texto con `pypdf` |
 | Verificación en fuentes abiertas | `backend/app/services/verificador.py` — extrae URLs, dominios y números de cuenta y los cruza contra listas de dominios maliciosos y reportes del CAI Virtual (mock) |
-| Registro inmanipulable | `backend/app/services/certificado.py` — hash SHA-256 completo, verificable con `verificar_integridad()` |
-| Canal accesible | `frontend/src/pages/Reportar.jsx` (web) + `backend/app/api/whatsapp.py` (webhook Twilio con TwiML XML) |
-| Inteligencia territorial | `frontend/src/pages/Dashboard.jsx` + `frontend/src/components/MapaCalor.jsx` — mapa de calor react-leaflet con datos en tiempo real desde Firestore |
+| Registro inmanipulable | `backend/app/services/certificado.py` — SHA-256 sobre texto + huellas de los adjuntos, verificable con `verificar_integridad()` |
+| Canal accesible | `frontend/src/pages/Reportar.jsx` (drag & drop de PDF/TXT/PNG/JPEG, ≤2 MB, 3 archivos) + `backend/app/api/whatsapp.py` (webhook Twilio con `MediaUrl0..2` descargadas con auth) |
+| Inteligencia territorial | `Dashboard.jsx` + `MapaCalor.jsx` — mapa de calor react-leaflet **restringido a Bosa**: `maxBounds`, centro `[4.619, -74.183]` y polígono de frontera; el backend garantiza coordenadas dentro del polígono (`app/data/bosa_polygon.py`) |
 
 ## Arquitectura
 
@@ -49,5 +50,5 @@ frontend/                 React + Vite (SPA en Vercel)
 ## Endpoints
 
 - `GET /` — health check
-- `POST /api/whatsapp/webhook` — recibe mensajes de Twilio, responde con TwiML XML
-- `POST /api/reporte-web` — `{ mensaje, barrio?, lat?, lng? }` → veredicto IA + cruce de fuentes + certificado SHA-256
+- `POST /api/whatsapp/webhook` — recibe mensajes de Twilio (`Body`, `MediaUrl0..2`), responde con TwiML XML
+- `POST /api/reporte-web` — `{ mensaje, adjuntos?[{nombre, mime, base64}], barrio?, lat?, lng? }` → veredicto IA multimodal + cruce de fuentes + certificado SHA-256 (incluye huella de los archivos). Errores: `413` peso, `415` formato, `400` Base64 corrupto
