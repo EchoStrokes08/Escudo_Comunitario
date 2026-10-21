@@ -59,19 +59,27 @@ def _historial(claves):
         raise
 
 
+# Presupuestos de tiempo (s) para WhatsApp: Twilio abandona el webhook a los 15 s
+_RAPIDO = {"llm": 8.5, "red": 2.5, "ots": 2.0}
+
+
 async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
-                           upz: str | None, lat: float | None, lng: float | None) -> dict:
+                           upz: str | None, lat: float | None, lng: float | None,
+                           rapido: bool = False) -> dict:
+    t = _RAPIDO if rapido else {"llm": None, "red": None, "ots": None}
+
     # 1-2. IA y verificación del texto escrito, en paralelo
     analisis, verif_texto = await asyncio.gather(
-        evaluar_fraude(mensaje, adjuntos),
-        verificar_mensaje(mensaje, historial=_historial),
+        evaluar_fraude(mensaje, adjuntos, presupuesto=t["llm"]),
+        verificar_mensaje(mensaje, historial=_historial, timeout_red=t["red"]),
     )
 
     # 3. Lo que la IA leyó en capturas/PDF/audio también se verifica
     leido = analisis.get("texto_detectado", "")
     extra = analisis.get("indicadores") or {}
     if leido or any(extra.values()):
-        verif_adjuntos = await verificar_mensaje(leido, indicadores_extra=extra, historial=_historial)
+        verif_adjuntos = await verificar_mensaje(leido, indicadores_extra=extra, historial=_historial,
+                                                 timeout_red=t["red"])
         verificacion = _fusionar_verificaciones(verif_texto, verif_adjuntos)
     else:
         verificacion = verif_texto
@@ -147,7 +155,7 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
     certificado = bloque["hash"]
 
     # 6-7. Anclaje externo, historial comunitario y brotes (sin bloquear si fallan)
-    anclaje = await anclar_opentimestamps(certificado)
+    anclaje = await anclar_opentimestamps(certificado, timeout=t["ots"])
     try:
         firebase_db.guardar_anclaje(certificado, anclaje)
     except Exception as error:

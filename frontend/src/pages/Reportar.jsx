@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { UPZ_BOSA, obtenerUpzMasCercana } from '../data/upz.js'
 import { dentroDeBosa } from '../data/bosaPolygon.js'
-import { nivelRiesgo } from '../utils/riesgo.js'
-import { useContador } from '../hooks/animacion.js'
 import Icono from '../components/Icono.jsx'
+import GrabadorVoz from '../components/GrabadorVoz.jsx'
+import Veredicto from '../components/Veredicto.jsx'
+import { API_URL } from '../services/api.js'
 
-const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-
-// Límites espejo del backend (variables MAX_ARCHIVOS / MAX_PESO_MB)
+// Límites espejo del backend (variables MAX_ARCHIVOS / MAX_PESO_MB / MAX_PESO_AUDIO_MB)
 const MAX_ARCHIVOS = 3
 const MAX_PESO_MB = 2
-const MAX_PESO_BYTES = MAX_PESO_MB * 1024 * 1024
+const MAX_PESO_AUDIO_MB = 4
+const pesoMaximo = (mime) => (mime.startsWith('audio/') ? MAX_PESO_AUDIO_MB : MAX_PESO_MB) * 1024 * 1024
 
-const MIME_SOPORTADOS = ['application/pdf', 'text/plain', 'image/png', 'image/jpeg']
-const EXTENSIONES = ['.pdf', '.txt', '.png', '.jpg', '.jpeg']
+const MIME_SOPORTADOS = ['application/pdf', 'text/plain', 'image/png', 'image/jpeg', 'image/webp',
+    'audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave']
+const EXTENSIONES = ['.pdf', '.txt', '.png', '.jpg', '.jpeg', '.webp', '.ogg', '.opus', '.mp3', '.wav']
 
 // Pista visual mientras se escribe; el veredicto real lo calcula el backend
 const SENALES = [
@@ -28,9 +28,10 @@ const SENALES = [
 const PASOS_ANALISIS = [
     'Leyendo el mensaje…',
     'Extrayendo texto de los archivos…',
-    'Buscando señales de fraude…',
-    'Cruzando fuentes abiertas…',
-    'Sellando el certificado SHA-256…',
+    'Buscando señales de fraude con IA…',
+    'Consultando registros de dominios y reportes de la comunidad…',
+    'Calculando la confianza del veredicto…',
+    'Encadenando el certificado y sellándolo en Bitcoin…',
 ]
 
 function extensionValida(nombre) {
@@ -47,37 +48,6 @@ function leerComoBase64(archivo) {
     })
 }
 
-/** Anillo animado con el porcentaje de riesgo. */
-function MedidorRiesgo({ valor, nivel }) {
-    const radio = 52
-    const circunferencia = 2 * Math.PI * radio
-    const [progreso, setProgreso] = useState(0)
-    const numero = useContador(valor, 1200)
-
-    useEffect(() => {
-        const marco = requestAnimationFrame(() => setProgreso(valor))
-        return () => cancelAnimationFrame(marco)
-    }, [valor])
-
-    return (
-        <div className={`medidor ${nivel.clase}`}>
-            <svg viewBox="0 0 120 120" aria-hidden="true">
-                <circle className="medidor-pista" cx="60" cy="60" r={radio} />
-                <circle
-                    className="medidor-arco"
-                    cx="60" cy="60" r={radio}
-                    strokeDasharray={circunferencia}
-                    strokeDashoffset={circunferencia * (1 - progreso / 100)}
-                />
-            </svg>
-            <div className="medidor-centro">
-                <span className="medidor-valor">{numero}<small>%</small></span>
-                <span className="medidor-etiqueta">Riesgo {nivel.etiqueta.toLowerCase()}</span>
-            </div>
-        </div>
-    )
-}
-
 export default function Reportar() {
     const [mensaje, setMensaje] = useState('')
     const [upz, setUpz] = useState('')
@@ -88,7 +58,6 @@ export default function Reportar() {
     const [cargando, setCargando] = useState(false)
     const [resultado, setResultado] = useState(null)
     const [pasoAnalisis, setPasoAnalisis] = useState(0)
-    const [copiado, setCopiado] = useState(false)
 
     // Estados de geolocalización del dispositivo
     const [cargandoGps, setCargandoGps] = useState(false)
@@ -124,13 +93,13 @@ export default function Reportar() {
         const nuevos = []
         for (const archivo of archivos.slice(0, disponibles)) {
             if (!MIME_SOPORTADOS.includes(archivo.type) || !extensionValida(archivo.name)) {
-                setErrorArchivo(`"${archivo.name}": formato no soportado. Adjunta PDF, TXT, PNG o JPEG.`)
+                setErrorArchivo(`"${archivo.name}": formato no soportado. Adjunta una captura, PDF, TXT o audio (OGG, MP3, WAV).`)
                 continue
             }
-            if (archivo.size > MAX_PESO_BYTES) {
+            if (archivo.size > pesoMaximo(archivo.type)) {
                 setErrorArchivo(
                     `"${archivo.name}" pesa ${(archivo.size / 1_048_576).toFixed(1)} MB. ` +
-                    `El máximo es ${MAX_PESO_MB} MB: comprime la imagen o usa un archivo más pequeño.`
+                    `El máximo es ${pesoMaximo(archivo.type) / 1_048_576} MB: usa un archivo más pequeño.`
                 )
                 continue
             }
@@ -144,6 +113,7 @@ export default function Reportar() {
                     preview: archivo.type.startsWith('image/')
                         ? `data:${archivo.type};base64,${base64}`
                         : null,
+                    audio: archivo.type.startsWith('audio/') ? URL.createObjectURL(archivo) : null,
                 })
             } catch (err) {
                 setErrorArchivo(err.message)
@@ -151,6 +121,15 @@ export default function Reportar() {
         }
 
         if (nuevos.length) setAdjuntos(prev => [...prev, ...nuevos].slice(0, MAX_ARCHIVOS))
+    }
+
+    const agregarNotaVoz = (nota) => {
+        setErrorArchivo(null)
+        if (adjuntos.length >= MAX_ARCHIVOS) {
+            setErrorArchivo(`Máximo ${MAX_ARCHIVOS} archivos por reporte. Quita uno para agregar la nota de voz.`)
+            return
+        }
+        setAdjuntos(prev => [...prev, { ...nota, preview: null, audio: nota.url }])
     }
 
     const eliminarAdjunto = (indice) => {
@@ -215,7 +194,7 @@ export default function Reportar() {
         setError(null)
 
         if (mensaje.trim().length < 10 && adjuntos.length === 0) {
-            setError('Pega el mensaje completo o adjunta un archivo (mínimo 10 caracteres de texto).')
+            setError('Pega el mensaje completo, adjunta una captura o graba una nota de voz.')
             return
         }
 
@@ -258,14 +237,6 @@ export default function Reportar() {
         }
     }
 
-    const copiarCertificado = async () => {
-        try {
-            await navigator.clipboard.writeText(resultado.certificado)
-            setCopiado(true)
-            setTimeout(() => setCopiado(false), 2000)
-        } catch { /* el código sigue visible para copiarlo a mano */ }
-    }
-
     const nuevoReporte = () => {
         setMensaje('')
         setUpz('')
@@ -277,8 +248,8 @@ export default function Reportar() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
     }
 
-    const nivel = resultado ? nivelRiesgo(resultado.nivel_riesgo) : null
     const listo = mensaje.trim().length >= 10 || adjuntos.length > 0
+    const pasoUnoListo = mensaje.trim().length >= 10 || adjuntos.some(a => a.audio)
 
     return (
         <div className="pagina-reporte">
@@ -287,8 +258,9 @@ export default function Reportar() {
                     <span className="eyebrow"><Icono nombre="escudo" tamano={14} /> Canal de denuncia ciudadana</span>
                     <h1>¿Te llegó un mensaje raro?</h1>
                     <p>
-                        Pégalo aquí o sube una captura, factura o PDF. Nuestra IA lo lee, lo cruza con
-                        fuentes abiertas y te entrega un certificado trazable en segundos.
+                        Pégalo, sube una captura o <strong>cuéntalo con tu voz</strong>. Nuestra IA lo analiza,
+                        lo verifica en fuentes abiertas en tiempo real, te dice qué hacer y te entrega un
+                        certificado sellado que nadie puede alterar.
                     </p>
                 </div>
             </section>
@@ -296,9 +268,9 @@ export default function Reportar() {
             <div className="rejilla-reporte">
                 <form className="formulario" onSubmit={enviar}>
                     {/* Paso 1: mensaje */}
-                    <fieldset className={`paso ${mensaje.trim().length >= 10 ? 'paso-completo' : ''}`}>
+                    <fieldset className={`paso ${pasoUnoListo ? 'paso-completo' : ''}`}>
                         <legend className="paso-titulo">
-                            <span className="paso-numero">{mensaje.trim().length >= 10 ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 1}</span>
+                            <span className="paso-numero">{pasoUnoListo ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 1}</span>
                             El mensaje sospechoso
                         </legend>
 
@@ -329,6 +301,9 @@ export default function Reportar() {
                                 <span className="texto-suave">Mientras escribes, te mostramos las señales típicas de fraude que detectemos.</span>
                             )}
                         </div>
+
+                        <div className="separador-o"><span>o si prefieres hablar</span></div>
+                        <GrabadorVoz onListo={agregarNotaVoz} deshabilitado={cargando} />
                     </fieldset>
 
                     {/* Paso 2: evidencia */}
@@ -356,12 +331,12 @@ export default function Reportar() {
                             <span>
                                 Arrastra tu captura o factura, o <strong>selecciona un archivo</strong>
                             </span>
-                            <small>PDF, TXT, PNG o JPEG · máx. {MAX_PESO_MB} MB · {adjuntos.length}/{MAX_ARCHIVOS} archivos</small>
+                            <small>Captura, PDF, TXT o audio · máx. {MAX_PESO_MB} MB ({MAX_PESO_AUDIO_MB} MB audio) · {adjuntos.length}/{MAX_ARCHIVOS} archivos</small>
                             <input
                                 ref={inputArchivo}
                                 type="file"
                                 multiple
-                                accept=".pdf,.txt,.png,.jpg,.jpeg"
+                                accept={EXTENSIONES.join(',')}
                                 hidden
                                 onChange={e => {
                                     agregarArchivos(e.target.files)
@@ -378,10 +353,12 @@ export default function Reportar() {
                                     <li key={`${a.nombre}-${i}`} className="adjunto">
                                         {a.preview
                                             ? <img src={a.preview} alt={a.nombre} className="adjunto-miniatura" />
-                                            : <span className="adjunto-icono"><Icono nombre="archivo" tamano={20} /></span>}
+                                            : <span className="adjunto-icono"><Icono nombre={a.audio ? 'microfono' : 'archivo'} tamano={20} /></span>}
                                         <span className="adjunto-info">
-                                            <strong>{a.nombre}</strong>
-                                            <small>{a.mime === 'application/pdf' ? 'PDF' : a.mime.split('/')[1].toUpperCase()} · {(a.tamano / 1024).toFixed(0)} KB</small>
+                                            <strong>{a.audio ? 'Nota de voz' : a.nombre}</strong>
+                                            {a.audio
+                                                ? <audio src={a.audio} controls preload="metadata" className="adjunto-audio" />
+                                                : <small>{a.mime === 'application/pdf' ? 'PDF' : a.mime.split('/')[1].toUpperCase()} · {(a.tamano / 1024).toFixed(0)} KB</small>}
                                         </span>
                                         <button
                                             type="button"
@@ -498,76 +475,12 @@ export default function Reportar() {
                     </div>
                     <div className="panel guia-panel guia-nota">
                         <Icono nombre="escudo" tamano={20} />
-                        <p>Tu reporte es anónimo. Solo guardamos el mensaje, la UPZ y una huella SHA-256 de los archivos.</p>
+                        <p>Tu reporte es anónimo. En el panel público solo se ve una versión sin datos personales; los archivos se guardan como huella SHA-256.</p>
                     </div>
                 </aside>
             </div>
 
-            {resultado && (
-                <section ref={seccionResultado} className={`veredicto ${nivel.clase}`}>
-                    <div className="veredicto-cabecera">
-                        <MedidorRiesgo valor={resultado.nivel_riesgo} nivel={nivel} />
-                        <div className="veredicto-texto">
-                            <span className="eyebrow">Veredicto del análisis</span>
-                            <h2>{nivel.id === 'alto' ? 'Muy probablemente es un fraude' : nivel.id === 'medio' ? 'Ten cuidado con este mensaje' : 'No vemos señales graves'}</h2>
-                            <p>{resultado.resumen}</p>
-                            {resultado.flags?.length > 0 && (
-                                <div className="flags">
-                                    {resultado.flags.map(flag => <span key={flag} className="flag">{flag}</span>)}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="veredicto-detalles">
-                        {resultado.verificacion?.hallazgos?.length > 0 && (
-                            <div className="bloque-detalle">
-                                <h3><Icono nombre="buscar" tamano={16} /> Coincidencias en fuentes abiertas</h3>
-                                {resultado.verificacion.hallazgos.map((h, i) => (
-                                    <div key={i} className="hallazgo-item">
-                                        <strong>{h.valor}</strong>
-                                        <span>{h.detalle}</span>
-                                        <small>{h.fuente}</small>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {resultado.adjuntos_analizados > 0 && (
-                            <div className="bloque-detalle">
-                                <h3><Icono nombre="clip" tamano={16} /> Archivos analizados ({resultado.adjuntos_analizados})</h3>
-                                {resultado.adjuntos.map((a, i) => (
-                                    <div key={i} className="hallazgo-item">
-                                        <strong>{a.nombre}</strong>
-                                        <span>{a.mime} · {(a.tamano / 1024).toFixed(0)} KB</span>
-                                        <small className="mono">SHA-256 {a.sha256.slice(0, 32)}…</small>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="certificado-caja">
-                        <div className="certificado-cabecera">
-                            <h3><Icono nombre="escudo" tamano={16} /> Certificado de reporte</h3>
-                            <button type="button" className={`boton-texto ${copiado ? 'copiado' : ''}`} onClick={copiarCertificado}>
-                                <Icono nombre={copiado ? 'check' : 'copiar'} tamano={15} /> {copiado ? 'Copiado' : 'Copiar'}
-                            </button>
-                        </div>
-                        <code>{resultado.certificado}</code>
-                        <p className="texto-suave">
-                            UPZ {resultado.upz || resultado.barrio}
-                            {resultado.ubicacion_dispositivo_en_bosa ? ' · ubicación GPS precisa en Bosa' : ' · ubicación por UPZ zonal'} ·{' '}
-                            {new Date(resultado.fecha).toLocaleString('es-CO')}
-                        </p>
-                    </div>
-
-                    <div className="veredicto-acciones">
-                        <Link to="/" className="boton boton-primario"><Icono nombre="mapa" /> Ver en el panel territorial</Link>
-                        <button type="button" className="boton boton-secundario" onClick={nuevoReporte}><Icono nombre="recargar" /> Hacer otro reporte</button>
-                    </div>
-                </section>
-            )}
+            {resultado && <Veredicto resultado={resultado} onNuevo={nuevoReporte} />}
         </div>
     )
 }

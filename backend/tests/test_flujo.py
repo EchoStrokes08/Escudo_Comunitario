@@ -87,7 +87,7 @@ def cliente(monkeypatch):
     monkeypatch.setattr(settings, "LLM_PROVIDER", "heuristico")
     monkeypatch.setattr(settings, "TWILIO_AUTH_TOKEN", None)
 
-    async def ots_falso(h):
+    async def ots_falso(h, timeout=None):
         return {"estado": "pendiente_bitcoin", "calendario": "prueba", "prueba_b64": "8BBwcnVlYmE="}
     monkeypatch.setattr(procesamiento, "anclar_opentimestamps", ots_falso)
 

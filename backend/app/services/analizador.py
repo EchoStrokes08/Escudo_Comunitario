@@ -18,6 +18,7 @@ local sobre el texto como fallback para que el servicio nunca quede inoperativo.
 El análisis heurístico también se ejecuta siempre como segunda opinión: su
 coincidencia con el LLM alimenta el nivel de confianza (services.puntuacion).
 """
+import asyncio
 import json
 import logging
 import re
@@ -361,12 +362,13 @@ def _describir_error(error: Exception) -> str:
         motivo = {400: "petición inválida", 401: "clave inválida", 403: "clave sin permiso",
                   429: "cuota agotada"}.get(codigo, "error del proveedor")
         return f"HTTP {codigo} ({motivo})"
-    if isinstance(error, httpx.TimeoutException):
+    if isinstance(error, (httpx.TimeoutException, asyncio.TimeoutError)):
         return "tiempo de espera agotado"
     return f"{type(error).__name__}: {str(error)[:160]}"
 
 
-async def evaluar_fraude(texto: str, adjuntos: list[dict] | None = None) -> dict:
+async def evaluar_fraude(texto: str, adjuntos: list[dict] | None = None,
+                         presupuesto: float | None = None) -> dict:
     """
     Analiza el mensaje (y sus adjuntos ya validados) con el LLM configurado.
     Retorna el veredicto del LLM (o del heurístico) más la segunda opinión local en
@@ -386,16 +388,18 @@ async def evaluar_fraude(texto: str, adjuntos: list[dict] | None = None) -> dict
             analizar, claves = _PROVEEDORES[proveedor]()
             intentos.extend((proveedor, analizar, clave) for clave in claves)
 
-        inicio = time.monotonic()
+        # Presupuesto total de tiempo: WhatsApp (Twilio corta a los 15 s) usa uno más corto
+        limite = time.monotonic() + (presupuesto or settings.LLM_PRESUPUESTO)
         errores = []
         for proveedor, analizar, clave in intentos:
-            if time.monotonic() - inicio > settings.LLM_PRESUPUESTO:
+            restante = limite - time.monotonic()
+            if restante < 1:
                 errores.append("presupuesto de tiempo agotado")
                 break
             if proveedor == "openai" and adjuntos and all(es_audio(a["mime"]) for a in adjuntos) and not texto:
                 continue  # OpenAI (chat) no procesa audio inline
             try:
-                crudo, modelo = await analizar(texto, adjuntos, clave)
+                crudo, modelo = await asyncio.wait_for(analizar(texto, adjuntos, clave), timeout=restante)
             except Exception as error:  # cuota, clave inválida, timeout…: siguiente clave/proveedor
                 descripcion = f"{proveedor}: {_describir_error(error)}"
                 log.warning("LLM falló → %s", descripcion)

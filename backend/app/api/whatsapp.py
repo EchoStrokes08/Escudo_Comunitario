@@ -214,7 +214,7 @@ async def recibir_whatsapp(request: Request):
 
     resultado = await procesar_reporte(
         mensaje=texto, adjuntos=adjuntos, canal="whatsapp", reportante=usuario,
-        upz=None, lat=None, lng=None,
+        upz=None, lat=None, lng=None, rapido=True,
     )
 
     try:

@@ -24,7 +24,7 @@ const PuntosCalor = memo(function PuntosCalor({ puntos, seleccionadoId, onSelecc
     return puntos.map(reporte => {
         const { tono, etiqueta, id } = nivelRiesgo(reporte.nivel_riesgo)
         const activo = reporte.id === seleccionadoId
-        const texto = reporte.mensaje_original || ''
+        const texto = reporte.mensaje_anonimizado || ''
         return (
             <Circle
                 key={reporte.id}

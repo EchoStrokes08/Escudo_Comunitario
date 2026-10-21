@@ -273,7 +273,7 @@ def _indicadores(texto: str, extra: dict | None) -> tuple[list[str], list[str], 
 
 
 async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
-                            historial=None) -> dict:
+                            historial=None, timeout_red: float | None = None) -> dict:
     """
     Cruza los elementos del mensaje contra las fuentes abiertas.
     historial: función opcional (lista de (tipo, valor)) → {clave: veces} con los
@@ -282,7 +282,8 @@ async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
     urls, dominios, cuentas, telefonos = _indicadores(texto, indicadores_extra)
     hallazgos: list[dict] = []
     fuentes: dict[str, str] = {}
-    timeout = httpx.Timeout(settings.VERIFICACION_TIMEOUT, connect=min(3.0, settings.VERIFICACION_TIMEOUT))
+    segundos = timeout_red or settings.VERIFICACION_TIMEOUT
+    timeout = httpx.Timeout(segundos, connect=min(3.0, segundos))
 
     async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": "EscudoComunitario/2.0"}) as client:
         # 1. Acortadores → destino real (se agrega a los dominios a revisar)

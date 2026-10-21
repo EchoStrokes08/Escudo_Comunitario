@@ -1,5 +1,6 @@
 /**
- * Almacén único de reportes (colección alertas_bosa).
+ * Almacén único de reportes (colección panel_publico: versión anonimizada).
+ * Los casos completos (alertas_bosa) solo los ve el backend y la vista de autoridades.
  *
  * - Una sola suscripción onSnapshot para toda la app: cambiar de página no vuelve a consultar.
  * - Se inicia en main.jsx, en paralelo al primer render, para que los datos lleguen antes.
@@ -13,7 +14,8 @@ import { CENTRO_BOSA, dentroDeBosa } from '../data/bosaPolygon.js'
 import { UPZ_BOSA } from '../data/upz.js'
 import { nivelRiesgo } from '../utils/riesgo.js'
 
-export const COLECCION = 'alertas_bosa'
+export const COLECCION = 'panel_publico'
+export const COLECCION_ALERTAS = 'alertas_comunitarias'
 const LIMITE = 500
 const DURACION_NUEVO_MS = 6000
 
@@ -82,8 +84,14 @@ function normalizar(id, datos) {
     let aproximada = false
 
     if (lat === null || lng === null || !dentroDeBosa(lat, lng)) {
-        ;[lat, lng] = ubicacionPorUpz(upz, id)
-        aproximada = true
+        if (upz) {
+            ;[lat, lng] = ubicacionPorUpz(upz, id)
+            aproximada = true
+        } else {
+            // Reporte de WhatsApp que aún no indica su UPZ: cuenta en las estadísticas, no en el mapa
+            lat = null
+            lng = null
+        }
     }
 
     const riesgo = Math.max(0, Math.min(100, Math.round(aNumero(datos.nivel_riesgo) ?? 0)))
@@ -98,8 +106,12 @@ function normalizar(id, datos) {
         nivel_riesgo: riesgo,
         nivel: nivelRiesgo(riesgo).id,
         fecha: aFechaIso(datos.fecha),
-        mensaje_original: datos.mensaje_original || datos.mensaje || '',
+        mensaje_anonimizado: datos.mensaje_anonimizado || '',
+        confianza: Math.round(aNumero(datos.confianza) ?? 0),
+        tipo_fraude: datos.tipo_fraude || 'otro',
         flags: Array.isArray(datos.flags) ? datos.flags : [],
+        hallazgos: Array.isArray(datos.hallazgos) ? datos.hallazgos : [],
+        indicadores: Array.isArray(datos.indicadores) ? datos.indicadores : [],
     }
 }
 
@@ -162,4 +174,28 @@ const leer = () => estado
 /** Hook: reportes normalizados y en tiempo real, compartidos por toda la app. */
 export function useAlertas() {
     return useSyncExternalStore(suscribir, leer)
+}
+
+
+/* ---------- Alertas comunitarias (brotes por UPZ) ---------- */
+
+let estadoAlertasComunidad = []
+const oyentesComunidad = new Set()
+let cancelarComunidad = null
+
+function suscribirComunidad(oyente) {
+    oyentesComunidad.add(oyente)
+    if (!cancelarComunidad) {
+        const consulta = query(collection(db, COLECCION_ALERTAS), orderBy('fecha', 'desc'), limit(6))
+        cancelarComunidad = onSnapshot(consulta, (snapshot) => {
+            estadoAlertasComunidad = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+            oyentesComunidad.forEach(o => o())
+        }, (error) => console.error('[Firestore] Alertas comunitarias:', error))
+    }
+    return () => oyentesComunidad.delete(oyente)
+}
+
+/** Hook: brotes de fraude detectados por el backend en las últimas horas. */
+export function useAlertasComunitarias() {
+    return useSyncExternalStore(suscribirComunidad, () => estadoAlertasComunidad)
 }

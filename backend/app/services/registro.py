@@ -129,14 +129,14 @@ def verificar_cadena(bloques: list[dict]) -> dict:
 # OpenTimestamps
 # --------------------------------------------------------------------------- #
 
-async def anclar_opentimestamps(hash_hex: str) -> dict:
+async def anclar_opentimestamps(hash_hex: str, timeout: float | None = None) -> dict:
     """
     Envía el hash a un calendario público de OpenTimestamps. Devuelve la prueba
     parcial (pendiente de confirmación en Bitcoin, normalmente en pocas horas).
     """
     digest = bytes.fromhex(hash_hex)
     errores = []
-    async with httpx.AsyncClient(timeout=settings.OTS_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=timeout or settings.OTS_TIMEOUT) as client:
         for calendario in settings.OTS_CALENDARIOS:
             try:
                 resp = await client.post(

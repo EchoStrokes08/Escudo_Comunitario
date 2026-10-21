@@ -46,7 +46,7 @@ def main():
     if r.status_code == 404:
         r = sesion.post(f"{base}/releases", json={"name": release, "rulesetName": ruleset})
     r.raise_for_status()
-    print(f"✅ Reglas publicadas ({ruleset}).")
+    print(f"OK: reglas publicadas ({ruleset}).")
 
 
 if __name__ == "__main__":

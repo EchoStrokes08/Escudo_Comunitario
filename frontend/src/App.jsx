@@ -5,6 +5,9 @@ import Icono from './components/Icono.jsx'
 
 // El formulario se descarga solo cuando se abre: el panel con el mapa arranca más ligero
 const Reportar = lazy(() => import('./pages/Reportar.jsx'))
+const Verificar = lazy(() => import('./pages/Verificar.jsx'))
+const Certificado = lazy(() => import('./pages/Certificado.jsx'))
+const Autoridades = lazy(() => import('./pages/Autoridades.jsx'))
 
 function App() {
     const ubicacion = useLocation()
@@ -25,6 +28,9 @@ function App() {
                     <NavLink to="/" end className="nav-enlace">
                         <Icono nombre="mapa" tamano={16} /> <span>Panel</span>
                     </NavLink>
+                    <NavLink to="/verificar" className="nav-enlace">
+                        <Icono nombre="candado" tamano={16} /> <span>Verificar</span>
+                    </NavLink>
                     <NavLink to="/reportar" className="nav-enlace nav-cta">
                         <Icono nombre="bandera" tamano={16} /> <span>Reportar</span>
                     </NavLink>
@@ -37,6 +43,10 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/reportar" element={<Reportar />} />
+                        <Route path="/verificar" element={<Verificar />} />
+                        <Route path="/verificar/:codigo" element={<Verificar />} />
+                        <Route path="/certificado/:codigo" element={<Certificado />} />
+                        <Route path="/autoridades" element={<Autoridades />} />
                         <Route path="*" element={<Dashboard />} />
                     </Routes>
                 </Suspense>
@@ -44,7 +54,9 @@ function App() {
 
             <footer className="pie">
                 <span><Icono nombre="escudo" tamano={14} /> Escudo Comunitario · Localidad 07 Bosa, Bogotá D.C.</span>
-                <span>Cada reporte queda sellado con un certificado SHA-256.</span>
+                <span>
+                    Certificados encadenados y sellados en Bitcoin · <NavLink to="/verificar">Verificar</NavLink> · <NavLink to="/autoridades">Autoridades</NavLink>
+                </span>
             </footer>
         </div>
     )
