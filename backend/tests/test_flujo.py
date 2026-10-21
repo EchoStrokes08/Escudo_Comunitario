@@ -167,3 +167,19 @@ def test_firma_twilio_obligatoria(cliente, monkeypatch):
     monkeypatch.setattr(settings, "TWILIO_AUTH_TOKEN", "token-de-prueba")
     r = api.post("/api/whatsapp/webhook", data={"From": "whatsapp:+57300", "Body": MENSAJE, "NumMedia": "0"})
     assert r.status_code == 403
+
+
+def test_simulador_chat_mismo_bot(cliente):
+    api, base = cliente
+    sesion = {"sesion": "navegador-de-prueba-123"}
+    r = api.post("/api/whatsapp/simulador", json={**sesion, "texto": "hola"}).json()
+    assert "Escudo Comunitario" in r["mensajes"][0]
+
+    r = api.post("/api/whatsapp/simulador", json={**sesion, "texto": MENSAJE}).json()
+    assert len(r["mensajes"]) == 2 and "Qué hacer ahora" in r["mensajes"][0]
+    assert r["opciones"] and r["certificado"]
+    assert base.registros[r["certificado"]]["canal"] == "chat"
+
+    # Ubicación del navegador dentro de Bosa completa el reporte
+    r2 = api.post("/api/whatsapp/simulador", json={**sesion, "lat": 4.6060, "lng": -74.1860}).json()
+    assert "UPZ" in r2["mensajes"][0] and base.publico[r["certificado"]]["upz"]

@@ -10,6 +10,9 @@ MediaContentType0..N, Latitude, Longitude) y espera TwiML. El canal:
   - Conversa en varios turnos: tras el veredicto pregunta la UPZ (número
     1-5) o la ubicación de WhatsApp 📍, y la agrega al reporte.
   - Comandos: "hola"/"ayuda" (menú), "verificar <certificado>".
+
+POST /api/whatsapp/simulador expone el mismo bot al chat de la web (/chat),
+para demos y para quien no tenga WhatsApp a mano.
 """
 import base64
 import logging
@@ -17,10 +20,12 @@ import re
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
 from app.core.config import settings
+from app.core.limite import limitar_por_ip
 from app.services import firebase_db
 from app.services.anonimizar import generalizar_ubicacion, seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
@@ -139,31 +144,30 @@ def _formatear_veredicto(r: dict) -> str:
     return "\n".join(lineas)
 
 
-def _responder_verificacion(texto: str) -> Response:
+def _responder_verificacion(texto: str) -> list[str]:
     codigo = re.sub(r"[^0-9a-f]", "", texto.lower().replace("verificar", ""))
     if len(codigo) < 16:
-        return _twiml("Escribe *verificar* seguido del código del certificado (mínimo 16 caracteres).")
+        return ["Escribe *verificar* seguido del código del certificado (mínimo 16 caracteres)."]
     try:
         bloque = firebase_db.buscar_bloque(codigo)
     except Exception:
-        return _twiml("No pudimos consultar el registro en este momento. Intenta más tarde.")
+        return ["No pudimos consultar el registro en este momento. Intenta más tarde."]
     if not bloque:
-        return _twiml("❌ No encontramos ese certificado en el registro.")
+        return ["❌ No encontramos ese certificado en el registro."]
     integro = verificar_bloque(bloque["hash"], bloque)
     estado = "✅ *Íntegro*: el reporte no ha sido modificado." if integro else \
         "❌ *Alterado*: el contenido ya no coincide con su certificado."
-    return _twiml(f"{estado}\nBloque #{bloque['altura']} · {bloque['fecha'][:16].replace('T', ' ')} UTC\n"
-                  f"{settings.APP_URL}/verificar/{bloque['hash']}")
+    return [f"{estado}\nBloque #{bloque['altura']} · {bloque['fecha'][:16].replace('T', ' ')} UTC\n"
+            f"{settings.APP_URL}/verificar/{bloque['hash']}"]
 
 
-@router.post("/webhook")
-async def recibir_whatsapp(request: Request):
-    params = dict(await request.form())
-    _validar_firma(request, params)
-
-    remitente = params.get("From", "")
-    usuario = seudonimo(remitente)
-    texto = (params.get("Body") or "").strip()
+async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float | None, lng: float | None,
+                    canal: str) -> dict:
+    """
+    Un turno de la conversación, compartido por el webhook de Twilio y el simulador web.
+    Retorna {"mensajes": [...], "opciones": [...], "certificado": str | None}.
+    """
+    texto = (texto or "").strip()
     conversacion = {}
     try:
         conversacion = firebase_db.obtener_conversacion(usuario)
@@ -172,48 +176,42 @@ async def recibir_whatsapp(request: Request):
     pendiente = conversacion.get("reporte_pendiente_upz")
 
     # 1. Ubicación compartida (📍) o número de UPZ para completar el último reporte
-    lat_txt, lng_txt = params.get("Latitude"), params.get("Longitude")
-    if pendiente and (lat_txt and lng_txt):
-        lat, lng = float(lat_txt), float(lng_txt)
+    if pendiente and lat is not None and lng is not None:
         if dentro_de_bosa(lat, lng):
             upz = min(UPZ_BOSA, key=lambda n: (UPZ_BOSA[n][0] - lat) ** 2 + (UPZ_BOSA[n][1] - lng) ** 2)
             firebase_db.actualizar_ubicacion(pendiente, upz, lat, lng, *generalizar_ubicacion(lat, lng))
             firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
-            return _twiml(f"📍 Gracias. Ubicamos tu reporte en la UPZ *{upz}*. "
-                          f"Así alertamos a tus vecinos. ¡Cuídate!")
-        return _twiml("Esa ubicación está fuera de Bosa. Responde con el número de tu UPZ:\n" + MENU_UPZ)
+            return {"mensajes": [f"📍 Gracias. Ubicamos tu reporte en la UPZ *{upz}*. "
+                                 f"Así alertamos a tus vecinos. ¡Cuídate!"]}
+        return {"mensajes": ["Esa ubicación está fuera de Bosa. Responde con el número de tu UPZ:\n" + MENU_UPZ],
+                "opciones": UPZ_MENU}
 
-    if pendiente and re.fullmatch(r"[1-5]", texto) and int(params.get("NumMedia") or 0) == 0:
+    if pendiente and re.fullmatch(r"[1-5]", texto) and not crudos:
         upz = UPZ_MENU[int(texto) - 1]
-        lat, lng = obtener_coordenadas(upz, seed=pendiente)
-        firebase_db.actualizar_ubicacion(pendiente, upz, lat, lng, *generalizar_ubicacion(lat, lng))
+        lat_upz, lng_upz = obtener_coordenadas(upz, seed=pendiente)
+        firebase_db.actualizar_ubicacion(pendiente, upz, lat_upz, lng_upz, *generalizar_ubicacion(lat_upz, lng_upz))
         firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
-        return _twiml(f"✅ Listo, reporte ubicado en la UPZ *{upz}*. Gracias por proteger a tu comunidad. 🛡️")
+        return {"mensajes": [f"✅ Listo, reporte ubicado en la UPZ *{upz}*. Gracias por proteger a tu comunidad. 🛡️"]}
 
     # 2. Comandos
     if texto.lower().startswith("verificar"):
-        return _responder_verificacion(texto)
+        return {"mensajes": _responder_verificacion(texto)}
 
-    tiene_media = int(params.get("NumMedia") or 0) > 0
-    if not tiene_media and (texto.lower().strip("!¡.?¿ ") in _SALUDOS or len(texto) < 10):
-        return _twiml(SALUDO)
+    if not crudos and (texto.lower().strip("!¡.?¿ ") in _SALUDOS or len(texto) < 10):
+        return {"mensajes": [SALUDO]}
 
-    # 3. Reporte: descarga y validación de adjuntos
+    # 3. Reporte: validación de adjuntos
     adjuntos = []
-    if tiene_media:
-        crudos = await _descargar_media(params)
-        validos = []
-        for crudo in crudos:
-            try:
-                validos += preparar_adjuntos([crudo])
-            except AdjuntoInvalidoError as error:
-                log.info("Adjunto descartado: %s", error)
-        adjuntos = validos
-        if not adjuntos and not texto:
-            return _twiml("No pude abrir ese archivo 😕. Envíame una captura (foto), un PDF o una nota de voz.")
+    for crudo in crudos[:settings.MAX_ARCHIVOS]:
+        try:
+            adjuntos += preparar_adjuntos([crudo])
+        except AdjuntoInvalidoError as error:
+            log.info("Adjunto descartado: %s", error)
+    if crudos and not adjuntos and not texto:
+        return {"mensajes": ["No pude abrir ese archivo 😕. Envíame una captura (foto), un PDF o una nota de voz."]}
 
     resultado = await procesar_reporte(
-        mensaje=texto, adjuntos=adjuntos, canal="whatsapp", reportante=usuario,
+        mensaje=texto, adjuntos=adjuntos, canal=canal, reportante=usuario,
         upz=None, lat=None, lng=None, rapido=True,
     )
 
@@ -224,4 +222,49 @@ async def recibir_whatsapp(request: Request):
 
     pregunta = ("📍 *Ayúdanos a proteger a tus vecinos:* ¿en qué UPZ de Bosa estás? "
                 "Responde con el número o comparte tu ubicación:\n" + MENU_UPZ)
-    return _twiml(_formatear_veredicto(resultado), pregunta)
+    return {"mensajes": [_formatear_veredicto(resultado), pregunta], "opciones": UPZ_MENU,
+            "certificado": resultado["certificado"]}
+
+
+@router.post("/webhook")
+async def recibir_whatsapp(request: Request):
+    params = dict(await request.form())
+    _validar_firma(request, params)
+
+    crudos = await _descargar_media(params) if int(params.get("NumMedia") or 0) > 0 else []
+    lat_txt, lng_txt = params.get("Latitude"), params.get("Longitude")
+    turno = await conversar(
+        usuario=seudonimo(params.get("From", "")), texto=params.get("Body") or "", crudos=crudos,
+        lat=float(lat_txt) if lat_txt else None, lng=float(lng_txt) if lng_txt else None,
+        canal="whatsapp",
+    )
+    return _twiml(*turno["mensajes"])
+
+
+# --------------------------------------------------------------------------- #
+# Simulador web (mismo bot, sin Twilio): respaldo para demos y pruebas
+# --------------------------------------------------------------------------- #
+
+class AdjuntoChat(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=120)
+    mime: str = Field(..., min_length=3, max_length=100)
+    base64: str = Field(..., min_length=1)
+
+
+class MensajeChat(BaseModel):
+    sesion: str = Field(..., min_length=8, max_length=64, description="Identificador aleatorio del navegador")
+    texto: str = Field("", max_length=5000)
+    adjuntos: list[AdjuntoChat] = Field(default_factory=list, max_length=settings.MAX_ARCHIVOS)
+    lat: float | None = None
+    lng: float | None = None
+
+
+@router.post("/simulador")
+async def simulador(mensaje: MensajeChat, request: Request):
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    limitar_por_ip(ip or "desconocida")
+    return await conversar(
+        usuario=seudonimo(f"chat:{mensaje.sesion}"), texto=mensaje.texto,
+        crudos=[a.model_dump() for a in mensaje.adjuntos], lat=mensaje.lat, lng=mensaje.lng,
+        canal="chat",
+    )

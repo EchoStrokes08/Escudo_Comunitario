@@ -47,7 +47,7 @@ function aBase64(bytes) {
  * Botón de nota de voz: para quien prefiere contar lo que pasó en vez de escribir.
  * onListo({ nombre, mime, base64, tamano, url })
  */
-export default function GrabadorVoz({ onListo, deshabilitado }) {
+export default function GrabadorVoz({ onListo, deshabilitado, compacto = false }) {
     const [estado, setEstado] = useState('inactivo') // inactivo | grabando | procesando
     const [segundos, setSegundos] = useState(0)
     const [error, setError] = useState(null)
@@ -104,6 +104,22 @@ export default function GrabadorVoz({ onListo, deshabilitado }) {
     }
 
     const detener = () => grabador.current?.state === 'recording' && grabador.current.stop()
+
+    if (compacto) {
+        const grabando = estado === 'grabando'
+        return (
+            <>
+                {error && <span className="chat-error-voz" role="alert">{error}</span>}
+                <button type="button" className={`chat-boton-icono accion ${grabando ? 'grabando' : ''}`}
+                    onClick={grabando ? detener : iniciar} disabled={deshabilitado || estado === 'procesando'}
+                    aria-label={grabando ? `Terminar grabación (${segundos} s)` : 'Grabar nota de voz'}>
+                    {estado === 'procesando' ? <span className="spinner spinner-pequeno" />
+                        : grabando ? <><Icono nombre="detener" tamano={18} /><small>{segundos}s</small></>
+                            : <Icono nombre="microfono" tamano={20} />}
+                </button>
+            </>
+        )
+    }
 
     return (
         <div className="grabador">

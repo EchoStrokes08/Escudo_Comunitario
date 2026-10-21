@@ -7,12 +7,12 @@ services.procesamiento: IA multimodal, verificación en fuentes abiertas,
 confianza, plan de acción, certificado encadenado y anclaje en Bitcoin.
 """
 import time
-from collections import defaultdict, deque
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.limite import limitar_por_ip
 from app.services.anonimizar import seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, validar_o_asignar
@@ -22,21 +22,6 @@ router = APIRouter()
 
 # Mapeo de código de error de adjunto → status HTTP
 _STATUS_ADJUNTO = {"peso": 413, "formato": 415, "corrupto": 400}
-
-# Límite simple por IP (por instancia): evita que un script inunde el registro
-_LIMITE_POR_MINUTO = 12
-_solicitudes: dict[str, deque] = defaultdict(deque)
-
-
-def _limitar(ip: str):
-    ahora = time.monotonic()
-    cola = _solicitudes[ip]
-    while cola and ahora - cola[0] > 60:
-        cola.popleft()
-    if len(cola) >= _LIMITE_POR_MINUTO:
-        raise HTTPException(status_code=429, detail="Demasiados reportes seguidos. Espera un minuto e inténtalo de nuevo.")
-    cola.append(ahora)
-
 
 class Adjunto(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=120)
@@ -72,7 +57,7 @@ def info_reporte_web():
 @router.post("/reporte-web/")
 async def reportar_mensaje(reporte: ReporteWeb, request: Request):
     ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
-    _limitar(ip or "desconocida")
+    limitar_por_ip(ip or "desconocida")
 
     mensaje = reporte.mensaje.strip()
     adjuntos_crudos = [a.model_dump() for a in reporte.adjuntos]
