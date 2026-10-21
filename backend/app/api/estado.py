@@ -28,6 +28,7 @@ async def estado(probar_ia: bool = False):
             "suplantacion_de_marca": "activa",
             "acortadores": "activa",
             "historial_comunitario": "activa",
+            "openphish": "activa",
             "urlhaus": "activa" if settings.URLHAUS_AUTH_KEY else "no configurada",
             "google_safe_browsing": "activa" if settings.GOOGLE_SAFE_BROWSING_KEY else "no configurada",
         },

@@ -9,7 +9,8 @@ las capturas y de la transcripción de audio) y los contrasta en paralelo con:
   2. Detección de suplantación de marca: dominios que contienen o imitan
      (typosquatting) a Nequi, Bancolombia, DIAN... sin ser el dominio oficial.
   3. Expansión de enlaces acortados (bit.ly, tinyurl…) para revelar el destino.
-  4. URLhaus (abuse.ch) y Google Safe Browsing, si hay clave configurada.
+  4. OpenPhish (feed público de sitios de phishing activos, sin clave), URLhaus
+     (abuse.ch) y Google Safe Browsing (estas dos si hay clave configurada).
   5. Historial comunitario: cuántas veces otros vecinos ya reportaron ese
      mismo dominio, cuenta o teléfono (services.firebase_db.consultar_indicadores).
   6. Lista de referencia local (datos de demostración, marcados como tales).
@@ -19,6 +20,7 @@ Cada fuente informa su estado ("consultada", "sin datos", "no configurada",
 """
 import asyncio
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -97,7 +99,16 @@ _TELEFONO_REGEX = re.compile(r"(?:\+?57[\s-]?)?\b(3\d{2})[\s-]?(\d{3})[\s-]?(\d{
 # Extracción
 # --------------------------------------------------------------------------- #
 
+_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def es_ip(host: str) -> bool:
+    return bool(_IPV4.match(host or ""))
+
+
 def dominio_registrable(host: str) -> str:
+    if es_ip(host):
+        return host
     partes = host.lower().strip(".").split(".")
     if len(partes) >= 3 and ".".join(partes[-2:]) in _SEGUNDO_NIVEL:
         return ".".join(partes[-3:])
@@ -234,6 +245,21 @@ async def _safe_browsing(client: httpx.AsyncClient, urls: list[str]) -> set[str]
     return {host_de(m["threat"]["url"]) for m in resp.json().get("matches", [])}
 
 
+# Feed comunitario de OpenPhish (sitios de phishing activos, gratuito y sin clave), en caché 1 h
+OPENPHISH_FEED = "https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt"
+_openphish: dict = {"hosts": set(), "cargado": 0.0}
+
+
+async def _hosts_openphish(client: httpx.AsyncClient) -> set[str]:
+    if time.monotonic() - _openphish["cargado"] < 3600 and _openphish["hosts"]:
+        return _openphish["hosts"]
+    resp = await client.get(OPENPHISH_FEED, follow_redirects=True)
+    resp.raise_for_status()
+    hosts = {host_de(linea.strip()) for linea in resp.text.splitlines() if linea.strip()}
+    _openphish.update(hosts={h for h in hosts if h}, cargado=time.monotonic())
+    return _openphish["hosts"]
+
+
 async def _seguro(coro):
     """Ejecuta una consulta externa; cualquier error se reporta, no se propaga."""
     try:
@@ -310,23 +336,39 @@ async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
                                           if host_de(d) not in ACORTADORES))[:6]
 
         # 2. Consultas en paralelo: RDAP, URLhaus, Safe Browsing
-        tareas_rdap = [_seguro(_rdap(client, d)) for d in registrables]
+        con_dominio = [d for d in registrables if not es_ip(d)]  # RDAP de dominios no aplica a IPs
+        tareas_rdap = [_seguro(_rdap(client, d)) for d in con_dominio]
         tareas_urlhaus = [_seguro(_urlhaus(client, d)) for d in registrables] if settings.URLHAUS_AUTH_KEY else []
         tarea_sb = [_seguro(_safe_browsing(client, urls + registrables))] \
             if settings.GOOGLE_SAFE_BROWSING_KEY and (urls or registrables) else []
-        resultados = await asyncio.gather(*tareas_rdap, *tareas_urlhaus, *tarea_sb)
+        tarea_op = [_seguro(_hosts_openphish(client))] if dominios else []
+        resultados = await asyncio.gather(*tareas_rdap, *tareas_urlhaus, *tarea_sb, *tarea_op)
 
     res_rdap = resultados[:len(tareas_rdap)]
     res_urlhaus = resultados[len(tareas_rdap):len(tareas_rdap) + len(tareas_urlhaus)]
-    res_sb = resultados[len(tareas_rdap) + len(tareas_urlhaus):]
+    res_sb = resultados[len(tareas_rdap) + len(tareas_urlhaus):len(tareas_rdap) + len(tareas_urlhaus) + len(tarea_sb)]
+    res_op = resultados[len(resultados) - len(tarea_op):] if tarea_op else []
 
     if registrables:
-        errores_rdap = sum(1 for _r, e in res_rdap if e)
-        fuentes["RDAP · registro público de dominios"] = "error" if errores_rdap == len(registrables) else "consultada"
+        if con_dominio:
+            errores_rdap = sum(1 for _r, e in res_rdap if e)
+            fuentes["RDAP · registro público de dominios"] = "error" if errores_rdap == len(con_dominio) else "consultada"
         fuentes["URLhaus (abuse.ch)"] = "consultada" if tareas_urlhaus else "no configurada"
         fuentes["Google Safe Browsing"] = "consultada" if tarea_sb else "no configurada"
+    if res_op:
+        hosts_phishing, error_op = res_op[0]
+        fuentes["OpenPhish · sitios de phishing reportados"] = "error" if error_op else "consultada"
+        for dominio in dominios:
+            # Coincidencia exacta de host: en hostings compartidos (pages.dev, vercel.app) no se marca a todos
+            if hosts_phishing and dominio in hosts_phishing:
+                hallazgos.append({"tipo": "dominio", "valor": dominio, "detalle": "Reportado como sitio de phishing activo",
+                                  "fuente": "OpenPhish · sitios de phishing reportados", "gravedad": 35})
 
-    for dominio, (info, _err) in zip(registrables, res_rdap):
+    for ip in [d for d in registrables if es_ip(d)]:
+        hallazgos.append({"tipo": "dominio", "valor": ip,
+                          "detalle": "El enlace apunta a una dirección IP en vez de un sitio con nombre (típico de malware)",
+                          "fuente": "Análisis del enlace", "gravedad": 15})
+    for dominio, (info, _err) in zip(con_dominio, res_rdap):
         if not info:
             continue
         if info.get("existe") is False:
