@@ -4,6 +4,8 @@
 backend/.env
 frontend/.env
 backend/serviceAccountKey.json
+serviceAccountKey.json
+*serviceAccount*.json
 *.pem
 *.key
 

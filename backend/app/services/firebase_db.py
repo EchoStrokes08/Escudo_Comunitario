@@ -1,15 +1,28 @@
+import os
+from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials, firestore
 from app.core.config import settings
 from datetime import datetime, timezone
 
-# Evitar doble inicialización en Vercel
+# Evitar doble inicialización en Vercel / serverless / recargas de Uvicorn
 if not firebase_admin._apps:
     if settings.FIREBASE_CREDENTIALS_DICT:
         cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_DICT)
     else:
-        # Fallback local: serviceAccountKey.json en la raíz de /backend (no commitear)
-        cred = credentials.Certificate("serviceAccountKey.json")
+        # Fallback para desarrollo local o contenedor: buscar serviceAccountKey.json
+        posibles_rutas = [
+            Path("backend/serviceAccountKey.json"),
+            Path("serviceAccountKey.json"),
+            Path(__file__).resolve().parent.parent.parent / "serviceAccountKey.json",
+        ]
+        ruta_encontrada = next((p for p in posibles_rutas if p.exists()), None)
+        if ruta_encontrada:
+            cred = credentials.Certificate(str(ruta_encontrada))
+        elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and Path(os.getenv("GOOGLE_APPLICATION_CREDENTIALS")).exists():
+            cred = credentials.Certificate(os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+        else:
+            cred = credentials.ApplicationDefault()
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()

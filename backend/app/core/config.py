@@ -21,7 +21,14 @@ class Settings:
     # --- Firebase ---
     firebase_env = os.getenv("FIREBASE_CREDENTIALS")
     if firebase_env:
-        FIREBASE_CREDENTIALS_DICT = json.loads(firebase_env)
+        try:
+            FIREBASE_CREDENTIALS_DICT = json.loads(firebase_env)
+        except Exception:
+            if os.path.exists(firebase_env):
+                with open(firebase_env, "r", encoding="utf-8") as f:
+                    FIREBASE_CREDENTIALS_DICT = json.load(f)
+            else:
+                FIREBASE_CREDENTIALS_DICT = None
     else:
         FIREBASE_CREDENTIALS_DICT = None
 

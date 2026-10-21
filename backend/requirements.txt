@@ -1,6 +1,7 @@
-# Core FastAPI and Uvicorn
+# Core FastAPI, Uvicorn and Production Server
 fastapi==0.110.1
 uvicorn[standard]==0.30.1
+gunicorn==26.2.0
 
 # Firebase
 firebase-admin==6.2.0

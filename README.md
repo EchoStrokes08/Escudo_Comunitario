@@ -30,22 +30,65 @@ frontend/                 React + Vite (SPA en Vercel)
 
 ## Configuración
 
-1. **Backend**
-   ```bash
-   cd backend
-   cp .env.example .env       # completa Twilio, Firebase y GEMINI_API_KEY
-   pip install -r requirements.txt
-   uvicorn app.main:app --reload
-   ```
-2. **Frontend**
-   ```bash
-   cd frontend
-   cp .env.example .env       # VITE_API_URL y credenciales públicas de Firebase
-   npm install
-   npm run dev
-   ```
+### 1. Backend
 
-> 🔒 Los archivos `.env`, `serviceAccountKey.json` y credenciales están excluidos del repo por `.gitignore`. En Vercel, configura las mismas variables en *Project → Settings → Environment Variables*.
+```bash
+cd backend
+cp .env.example .env       # completa Twilio, CORS_ORIGINS y GEMINI_API_KEY
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+**Firebase (base de datos):**
+
+- **Local**: la credencial ya está en `backend/serviceAccountKey.json` (fallback automático de `services/firebase_db.py`).
+- **Vercel**: pega el JSON completo de la service account como variable `FIREBASE_CREDENTIALS` en *Project → Settings → Environment Variables* (es una sola línea; el `\n` de la clave privada viene escapado dentro del JSON).
+- **Verificación**: desde `/backend` corre el smoke test — escribe, lee y borra un documento de prueba en `alertas_bosa`:
+  ```bash
+  python scripts/probar_firebase.py
+  ```
+
+### 2. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+`frontend/.env` ya contiene la web config pública de Firebase (`VITE_FIREBASE_*`) y `VITE_API_URL` para el backend.
+
+### 3. Reglas de Firestore
+
+`firestore.rules` abre **únicamente** `alertas_bosa` (lectura/escrita sin login, para que el Dashboard funcione) y cierra el resto de la base. Despliega con:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+o pega las reglas manualmente en la consola de Firebase → Firestore → Rules.
+
+> ⚠️ Para un despliegue real, restringe `alertas_bosa` con `request.auth != null` (auth anónima de Firebase).
+
+### 4. Seguridad de credenciales
+
+- 🔒 Los secretos (`.env`, `serviceAccountKey.json`) están en `.gitignore` y **no se suben al repo**.
+- 🔄 **Rotación de claves**: si una service account o web config se compartió fuera de un canal seguro (chat, pantalla), rota la clave en Google Cloud Console → IAM → Service Accounts → ADD KEY → *Create new key* y elimina la anterior. La web config (`VITE_FIREBASE_*`) es pública por diseño y no da acceso de escritura.
+
+### 5. End-to-end (smoke test manual)
+
+```bash
+# Terminal 1
+cd backend && uvicorn app.main:app --reload
+# Terminal 2
+cd frontend && npm run dev
+# Terminal 3 (reporte de prueba)
+curl -X POST http://localhost:8000/api/reporte-web \
+  -H "Content-Type: application/json" \
+  -d "{\"mensaje\": \"Felicidades, ganaste un premio. Consigna $50.000 en Nequi 3001234567 antes de las 6pm: www.premios-bogota.top\"}"
+```
+
+El documento debe aparecer en Firestore (`alertas_bosa`) y renderizarse en el Dashboard en tiempo real.
 
 ## Endpoints
 

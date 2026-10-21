@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Escudo Comunitario - Reglas de Firestore
+// La colección alertas_bosa es de lectura/escrita pública para la demo
+// del hackathon (el Dashboard lee sin autenticación).
+// TODO: restringir con request.auth != null antes de un despliegue real.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /alertas_bosa/{reporteId} {
+      allow read, write: if true;
+    }
+
+    // Todo lo demás queda cerrado por defecto
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
