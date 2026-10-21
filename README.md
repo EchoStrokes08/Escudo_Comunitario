@@ -26,18 +26,134 @@ Ensayo local sin tocar Firestore: `python scripts/servidor_demo.py` (base en mem
 
 ## Arquitectura
 
+### Vista general
+
 ```
-backend/                  FastAPI (serverless en Vercel)
-  app/main.py             App + middleware CORS (configurable por CORS_ORIGINS)
-  app/api/whatsapp.py     POST /api/whatsapp/webhook (Twilio)
-  app/api/web_report.py   POST /api/reporte-web (formulario React)
-  app/services/           analizador · verificador · certificado · firebase_db · geolocalizacion
-  app/core/config.py      Lectura de variables de entorno (.env)
-frontend/                 React + Vite (SPA en Vercel)
-  src/pages/              Dashboard (/) · Reportar (/reportar)
-  src/components/         MapaCalor.jsx (react-leaflet)
-  src/services/firebase.js
+   Canales de entrada                     Backend (FastAPI · Vercel)                       Datos y pruebas
+ ┌───────────────────────┐        ┌──────────────────────────────────────┐        ┌───────────────────────────┐
+ │ Formulario web        │──┐     │ services/procesamiento.py            │        │ Firestore                 │
+ │ Chat web (/chat)      │──┤     │  1. Agente IA multimodal  ─┐ en      │        │  alertas_bosa   (privada) │
+ │ Telegram              │──┼────▶│  2. Verificación abierta  ─┘ paralelo│───────▶│  panel_publico  (pública) │
+ │ WhatsApp (Meta)       │──┤     │  3. Re-verificación de lo leído      │        │  registros      (pública) │
+ │ WhatsApp (Twilio)     │──┘     │  4. Riesgo + confianza + plan        │        │  …                        │
+ └───────────────────────┘        │  5. Bloque encadenado (certificado)  │        └───────────────────────────┘
+                                  │  6. Sello en Bitcoin (OpenTimestamps)│───────▶ Calendarios OpenTimestamps
+                                  └──────────────────────────────────────┘
+                                                    │
+                                                    ▼
+             Frontend (React + Vite): panel en tiempo real · verificación pública · certificado con QR · autoridades
 ```
+
+Vercel publica los dos servicios en el mismo dominio (`vercel.json`): `/api/*` va al backend y todo lo demás a la SPA de React.
+
+### Backend — `backend/`
+
+```
+backend/
+├── app/
+│   ├── main.py                       App FastAPI, CORS (CORS_ORIGINS), registro de rutas, docs en /api/docs
+│   ├── api/                          ── Rutas HTTP ──
+│   │   ├── web_report.py             POST /api/reporte-web: formulario web (texto, adjuntos y voz en Base64)
+│   │   ├── whatsapp.py               Webhook de Twilio (firma validada) + /api/whatsapp/simulador (chat web)
+│   │   ├── whatsapp_meta.py          Webhook de WhatsApp Cloud API de Meta (verificación y mensajes)
+│   │   ├── telegram.py               Webhook del bot de Telegram (/start, /verificar, /alertas, /cancelar)
+│   │   ├── verificacion.py           Verificación pública de certificados, descarga .json/.ots, auditoría
+│   │   ├── autoridades.py            Casos completos para autoridades (token Bearer, exportación CSV)
+│   │   └── estado.py                 Salud de cada componente; ?probar_ia=1 prueba el LLM en vivo
+│   ├── core/                         ── Configuración y reglas comunes ──
+│   │   ├── config.py                 Lectura de variables de entorno (.env / Vercel)
+│   │   ├── riesgo.py                 Umbrales únicos de riesgo y confianza (iguales en el frontend)
+│   │   └── limite.py                 Límite de solicitudes por IP (12/min) contra inundación
+│   ├── services/                     ── Lógica de negocio ──
+│   │   ├── procesamiento.py          Flujo único de un reporte, compartido por todos los canales
+│   │   ├── analizador.py             Agente IA: Groq → Gemini → OpenAI → heurístico; texto, OCR, PDF, voz
+│   │   ├── verificador.py            Fuentes abiertas: RDAP, OpenPhish, URLhaus, Safe Browsing, marcas…
+│   │   ├── puntuacion.py             Riesgo final y nivel de confianza explicables (factores legibles)
+│   │   ├── orientacion.py            Tipos de fraude y plan de acción por tipo (123, 122, CAI Virtual…)
+│   │   ├── registro.py               Cadena de hashes SHA-256 + anclaje OpenTimestamps + archivo .ots
+│   │   ├── firebase_db.py            Persistencia en Firestore (transacciones de la cadena)
+│   │   ├── anonimizar.py             Seudónimos y enmascarado de datos personales (Ley 1581 de 2012)
+│   │   ├── archivos.py               Validación y normalización de adjuntos (imagen, PDF, TXT, audio)
+│   │   ├── mensajeria.py             Envío/descarga de medios en Telegram y WhatsApp de Meta
+│   │   ├── geolocalizacion.py        Ubicación por UPZ; todo punto cae dentro del polígono de Bosa
+│   │   └── alertas_comunitarias.py   Detección de brotes por UPZ y aviso a líderes suscritos
+│   └── data/
+│       └── bosa_polygon.py           Polígono oficial de la Localidad 07 (fuente única de verdad)
+├── scripts/
+│   ├── servidor_demo.py              Backend local con base EN MEMORIA (ensayo de la demo)
+│   ├── migrar_v2.py                  Pasa los reportes antiguos a la cadena v2 (idempotente)
+│   ├── desplegar_reglas.py           Publica firestore.rules sin Firebase CLI
+│   ├── configurar_telegram.py        Registra webhook, comandos y descripción del bot
+│   └── probar_firebase.py            Smoke test: escribe, lee y borra en Firestore
+├── tests/
+│   ├── test_nucleo.py                Cadena, anonimización, verificación local, confianza, adjuntos
+│   ├── test_flujo.py                 Flujo completo de la API con base en memoria y red simulada
+│   └── test_canales.py               Telegram y WhatsApp de Meta con la API de cada plataforma simulada
+├── requirements.txt                  Producción (FastAPI, firebase-admin, httpx, twilio, pypdf…)
+├── requirements-dev.txt              Desarrollo y pruebas (pytest, pytest-asyncio)
+└── .env.example                      Plantilla de variables de entorno
+```
+
+### Frontend — `frontend/`
+
+```
+frontend/src/
+├── main.jsx                  Arranque de React e inicio temprano de la suscripción a Firestore
+├── App.jsx                   Navegación y rutas
+├── styles.css                Estilos globales (tema oscuro, acentos cyan)
+├── pages/
+│   ├── Dashboard.jsx         /                     Panel: mapa, tendencia, tipos, entidades, alertas por UPZ
+│   ├── Reportar.jsx          /reportar             Formulario: texto, capturas, PDF, voz y ubicación
+│   ├── Chat.jsx              /chat                 Chat web con el mismo bot de WhatsApp y Telegram
+│   ├── Verificar.jsx         /verificar[/:codigo]  Verificación pública, eslabones, huella en el navegador
+│   ├── Certificado.jsx       /certificado/:codigo  Certificado de reporte imprimible con QR
+│   └── Autoridades.jsx       /autoridades          Casos completos (token) y exportación CSV
+├── components/
+│   ├── Veredicto.jsx         Riesgo, confianza, factores, plan de acción y "Escuchar resultado"
+│   ├── GrabadorVoz.jsx       Grabación de notas de voz desde el navegador
+│   ├── MapaCalor.jsx         Mapa de reportes por UPZ (react-leaflet)
+│   ├── GraficaTendencia.jsx  Tendencia de reportes de los últimos 14 días
+│   ├── CodigoQR.jsx          QR hacia la página pública de verificación
+│   └── Icono.jsx             Iconos de la interfaz
+├── services/
+│   ├── api.js                Cliente del backend (mismo dominio en Vercel, proxy de Vite en local)
+│   ├── firebase.js           Inicialización de Firebase (configuración web pública)
+│   └── alertas.js            Suscripción única en tiempo real a panel_publico
+├── data/
+│   ├── bosaPolygon.js        Réplica del polígono de Bosa para Leaflet
+│   ├── upz.js                Las 5 UPZ de Bosa (Apogeo, Bosa Occidental, Bosa Central, El Porvenir, Tintal Sur)
+│   └── barrios.js            Compatibilidad: re-exporta upz.js
+├── hooks/
+│   └── animacion.js          Animaciones (respeta "reducir movimiento")
+└── utils/
+    ├── riesgo.js             Umbrales y colores de riesgo (iguales al backend)
+    ├── canales.js            Enlaces públicos a Telegram (@EscudoBosaBot) y WhatsApp
+    └── tiempo.js             Formato de fechas relativas
+```
+
+### Colecciones de Firestore
+
+| Colección | Acceso | Contenido |
+|---|---|---|
+| `alertas_bosa/{hash}` | 🔒 Privada (solo backend) | Caso completo para autoridades; el teléfono se guarda solo como seudónimo |
+| `panel_publico/{hash}` | 👁️ Pública, solo lectura | Versión anonimizada que alimenta el panel |
+| `registros/{hash}` | 👁️ Pública, solo lectura | Bloques de la cadena de certificados |
+| `alertas_comunitarias/{id}` | 👁️ Pública, solo lectura | Brotes detectados por UPZ |
+| `cadena/estado` | 🔒 Privada | Altura y último hash (se actualiza en transacción) |
+| `indicadores/{id}` | 🔒 Privada | Veces que se reportó cada dominio, cuenta o teléfono |
+| `conversaciones/{seudonimo}` | 🔒 Privada | Estado de la conversación del bot |
+| `suscriptores_alertas/{id}` | 🔒 Privada | Líderes que reciben alertas (Telegram / WhatsApp) |
+
+### Tecnologías
+
+| Capa | Herramientas |
+|---|---|
+| Backend | Python, FastAPI, httpx (asíncrono), pypdf, Twilio SDK, firebase-admin |
+| IA | Groq (Qwen y Whisper para voz), Google Gemini, OpenAI (opcional), análisis heurístico local de respaldo |
+| Fuentes abiertas | RDAP, OpenPhish, URLhaus (abuse.ch), Google Safe Browsing |
+| Trazabilidad | SHA-256 encadenado, OpenTimestamps (sello en Bitcoin) |
+| Frontend | React 18, Vite, React Router, Leaflet / react-leaflet, qrcode, Web Speech API |
+| Datos y despliegue | Firebase Firestore, Vercel Services |
 
 ## Configuración
 
@@ -101,6 +217,27 @@ El caso completo queda en `alertas_bosa` (privada), su versión anonimizada en `
 
 ## Endpoints
 
-- `GET /` — health check
-- `POST /api/whatsapp/webhook` — recibe mensajes de Twilio (`Body`, `MediaUrl0..2`), responde con TwiML XML
-- `POST /api/reporte-web` — `{ mensaje, adjuntos?[{nombre, mime, base64}], barrio?, lat?, lng? }` → veredicto IA multimodal + cruce de fuentes + certificado SHA-256 (incluye huella de los archivos). Errores: `413` peso, `415` formato, `400` Base64 corrupto
+Documentación interactiva completa en `/api/docs`.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/` | Health check |
+| `GET` | `/api/estado` | Salud de cada componente (sin secretos); `?probar_ia=1` hace una llamada real al LLM |
+| **Reporte** | | |
+| `POST` | `/api/reporte-web` | `{ mensaje, adjuntos?[{nombre, mime, base64}], barrio?, lat?, lng? }` → veredicto IA + verificación + confianza + plan + certificado. Errores: `413` peso, `415` formato, `400` Base64 corrupto |
+| **Canales conversacionales** | | |
+| `POST` | `/api/whatsapp/simulador` | Chat web (`/chat`): misma conversación que el bot de WhatsApp |
+| `POST` | `/api/whatsapp/webhook` | Twilio (form-encoded, firma `X-Twilio-Signature` validada) → responde TwiML |
+| `GET` | `/api/whatsapp-meta/webhook` | Verificación del webhook de Meta (`hub.challenge`) |
+| `POST` | `/api/whatsapp-meta/webhook` | Mensajes de WhatsApp Cloud API (texto, imagen, audio, documento, ubicación, lista de UPZ) |
+| `POST` | `/api/telegram/webhook` | Mensajes del bot de Telegram (cabecera secreta validada) |
+| **Verificación y cadena** | | |
+| `GET` | `/api/verificar/{codigo}` | ¿El reporte existe y está íntegro? (hash completo o prefijo) |
+| `GET` | `/api/verificar/{hash}/registro.json` | JSON canónico del bloque (su SHA-256 es el certificado) |
+| `GET` | `/api/verificar/{hash}/prueba.ots` | Prueba OpenTimestamps, verificable en opentimestamps.org |
+| `GET` | `/api/cadena/estado` | Altura y último hash de la cadena |
+| `GET` | `/api/cadena/auditoria` | Recalcula todos los hashes y enlaces de la cadena |
+| `POST` | `/api/cadena/sellar/{codigo}` | Sella un reporte en Bitcoin justo después del veredicto (público, idempotente, limitado por IP) |
+| `POST` | `/api/cadena/anclar-pendientes` | Sella todos los reportes pendientes (token) |
+| **Autoridades** | | |
+| `GET` | `/api/autoridades/casos` | Casos completos (`Authorization: Bearer <AUTORIDADES_TOKEN>`); `?formato=csv` para exportar |
