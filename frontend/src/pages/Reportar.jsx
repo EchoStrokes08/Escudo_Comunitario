@@ -5,7 +5,7 @@ import Icono from '../components/Icono.jsx'
 import GrabadorVoz from '../components/GrabadorVoz.jsx'
 import Veredicto from '../components/Veredicto.jsx'
 import { API_URL } from '../services/api.js'
-import { TELEGRAM_BOT, URL_TELEGRAM } from '../utils/canales.js'
+import { URL_TELEGRAM, URL_WHATSAPP } from '../utils/canales.js'
 
 // Límites espejo del backend (variables MAX_ARCHIVOS / MAX_PESO_MB / MAX_PESO_AUDIO_MB)
 const MAX_ARCHIVOS = 3
@@ -474,10 +474,18 @@ export default function Reportar() {
                             <li><span className="guia-icono fondo-alto-suave"><Icono nombre="hash" tamano={16} /></span><div><strong>Piden pagos o claves</strong><p>Ninguna entidad seria te pide consignar a un Nequi personal ni tu código de verificación.</p></div></li>
                         </ul>
                     </div>
-                    <a href={URL_TELEGRAM} target="_blank" rel="noreferrer" className="panel guia-panel guia-nota guia-telegram">
-                        <Icono nombre="mensaje" tamano={20} />
-                        <p><strong>¿Prefieres el celular?</strong> Escríbele o mándale una nota de voz a <strong>@{TELEGRAM_BOT}</strong> en Telegram. Los líderes pueden escribir /alertas para recibir avisos de su UPZ.</p>
-                    </a>
+                    <div className="panel guia-panel guia-canales">
+                        <p><strong>¿Prefieres el celular?</strong> Mándale el mensaje, una captura o una nota de voz al Escudo:</p>
+                        <div className="enlaces-canales">
+                            <a href={URL_WHATSAPP} target="_blank" rel="noreferrer" className="boton boton-whatsapp">
+                                <Icono nombre="mensaje" tamano={16} /> WhatsApp
+                            </a>
+                            <a href={URL_TELEGRAM} target="_blank" rel="noreferrer" className="boton boton-secundario">
+                                <Icono nombre="mensaje" tamano={16} /> Telegram
+                            </a>
+                        </div>
+                        <small className="texto-suave">Líderes comunitarios: escriban <strong>alertas</strong> para recibir avisos de brotes en su UPZ.</small>
+                    </div>
                     <div className="panel guia-panel guia-nota">
                         <Icono nombre="escudo" tamano={20} />
                         <p>Tu reporte es anónimo. En el panel público solo se ve una versión sin datos personales; los archivos se guardan como huella SHA-256.</p>

@@ -1761,10 +1761,12 @@ code, .mono { font-family: var(--fuente-mono); }
 .chat-boton-icono.grabando small { font-variant-numeric: tabular-nums; font-weight: 700; }
 .chat-boton-icono:disabled { opacity: 0.5; cursor: progress; }
 
-.enlace-telegram { margin-top: 1rem; }
-.guia-telegram { text-decoration: none; border-color: rgba(56, 198, 232, 0.35); transition: border-color 0.2s; }
-.guia-telegram:hover { border-color: var(--cyan-claro); }
-.guia-telegram .icono { color: var(--cyan-claro) !important; }
+.enlaces-canales { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+.boton-whatsapp { background: #00a884; border-color: #00a884; color: #fff; }
+.boton-whatsapp:hover { background: #019474; }
+.guia-canales { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.86rem; color: var(--texto-suave); border-color: rgba(0, 168, 132, 0.35); }
+.guia-canales .enlaces-canales { margin: 0.5rem 0; }
+.guia-canales .enlaces-canales .boton { flex: 1; padding: 0.6rem 0.8rem; }
 
 /* ---------- Responsivo ---------- */
 @media (max-width: 1080px) {
