@@ -142,7 +142,7 @@ def _texto_de_adjuntos(texto_adjuntos: list[str]) -> str:
 # Proveedores LLM (multimodal)
 # --------------------------------------------------------------------------- #
 
-async def _analizar_con_gemini(texto: str, adjuntos: list[dict] | None) -> dict | None:
+async def _analizar_con_gemini(texto: str, adjuntos: list[dict] | None, clave: str) -> dict | None:
     """
     Gemini 1.5 Flash: acepta imágenes Y PDFs como partes inline en Base64
     (adjuntos ya validados por services.archivos).
@@ -167,14 +167,14 @@ async def _analizar_con_gemini(texto: str, adjuntos: list[dict] | None) -> dict 
         resp = await client.post(
             url,
             json=payload,
-            headers={"x-goog-api-key": settings.GEMINI_API_KEY or ""},
+            headers={"x-goog-api-key": clave},
         )
         resp.raise_for_status()
         data = resp.json()
         return _extraer_json(data["candidates"][0]["content"]["parts"][0]["text"])
 
 
-async def _analizar_con_openai(texto: str, adjuntos: list[dict] | None) -> dict | None:
+async def _analizar_con_openai(texto: str, adjuntos: list[dict] | None, clave: str) -> dict | None:
     """
     GPT-4o: acepta imágenes como data URIs. Los PDFs no son soportados inline,
     por lo que se envía su texto extraído (services.archivos.extraer_texto_pdf).
@@ -208,7 +208,7 @@ async def _analizar_con_openai(texto: str, adjuntos: list[dict] | None) -> dict 
         resp = await client.post(
             url,
             json=payload,
-            headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY or ''}"},
+            headers={"Authorization": f"Bearer {clave}"},
         )
         resp.raise_for_status()
         return _extraer_json(resp.json()["choices"][0]["message"]["content"])
@@ -245,6 +245,13 @@ def _analisis_heuristico(texto: str, adjuntos: list[dict] | None = None) -> dict
     }
 
 
+# Cada proveedor con su función y sus claves (leídas al momento para respetar settings)
+_PROVEEDORES = {
+    "gemini": lambda: (_analizar_con_gemini, settings.GEMINI_API_KEYS),
+    "openai": lambda: (_analizar_con_openai, settings.OPENAI_API_KEYS),
+}
+
+
 # --------------------------------------------------------------------------- #
 # Interfaz pública
 # --------------------------------------------------------------------------- #
@@ -260,22 +267,27 @@ async def evaluar_fraude(texto: str, adjuntos: list[dict] | None = None) -> dict
     if not texto and not adjuntos:
         return dict(_ANALISIS_FALLBACK, motor="vacio")
 
-    proveedor = settings.LLM_PROVIDER
-    try:
-        if proveedor == "gemini" and settings.GEMINI_API_KEY:
-            resultado = await _analizar_con_gemini(texto, adjuntos)
-        elif proveedor == "openai" and settings.OPENAI_API_KEY:
-            resultado = await _analizar_con_openai(texto, adjuntos)
-        elif proveedor == "heuristico":
-            return _analisis_heuristico(texto, adjuntos)
-        else:
-            # Sin API key configurada: se degrada al análisis local
-            return _analisis_heuristico(texto, adjuntos)
+    if settings.LLM_PROVIDER == "heuristico":
+        return _analisis_heuristico(texto, adjuntos)
+
+    # Proveedor configurado primero; el otro (si tiene claves) queda como respaldo
+    orden = sorted(_PROVEEDORES, key=lambda p: p != settings.LLM_PROVIDER)
+    intentos = []
+    for proveedor in orden:
+        analizar, claves = _PROVEEDORES[proveedor]()
+        intentos.extend((analizar, clave) for clave in claves)
+    if not intentos:
+        # Sin API key configurada: se degrada al análisis local
+        return _analisis_heuristico(texto, adjuntos)
+
+    for analizar, clave in intentos:
+        try:
+            resultado = await analizar(texto, adjuntos, clave)
+        except Exception:
+            # Cuota agotada, clave inválida, timeout…: se prueba la siguiente clave
+            continue
         if resultado is not None:
             return _sanitizar_analisis(resultado)
-    except Exception:
-        # Cualquier error del proveedor no debe tumbar el servicio
-        pass
 
     fallback = _analisis_heuristico(texto, adjuntos)
     fallback["motor"] = "heuristico (respaldo por error del LLM)"

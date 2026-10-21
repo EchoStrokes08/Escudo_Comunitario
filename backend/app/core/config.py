@@ -26,6 +26,11 @@ def _parse_bool(valor: str | None, default: bool = False) -> bool:
     return valor.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _parse_lista(valor: str | None) -> list[str]:
+    """Lista separada por comas (ignora espacios y elementos vacíos)."""
+    return [v.strip() for v in (valor or "").split(",") if v.strip()]
+
+
 class Settings:
     # --- Twilio (canal WhatsApp) ---
     TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -77,10 +82,11 @@ class Settings:
     # Proveedor seleccionable: "gemini" | "openai" | "heuristico"
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
 
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    # Admiten varias claves separadas por comas: si una se queda sin cuota o falla, se usa la siguiente
+    GEMINI_API_KEYS = _parse_lista(os.getenv("GEMINI_API_KEY"))
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    OPENAI_API_KEYS = _parse_lista(os.getenv("OPENAI_API_KEY"))
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     # Segundos máximos de espera al LLM antes de caer al análisis heurístico
