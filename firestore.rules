@@ -1,17 +1,35 @@
 rules_version = '2';
 
 // Escudo Comunitario - Reglas de Firestore
-// La colección alertas_bosa es de lectura/escrita pública para la demo
-// del hackathon (el Dashboard lee sin autenticación).
-// TODO: restringir con request.auth != null antes de un despliegue real.
+//
+// El navegador SOLO puede leer información anonimizada. Nadie puede escribir
+// desde el cliente: todos los reportes entran por el backend (Admin SDK, que
+// no está sujeto a estas reglas), donde se analizan, se encadenan y se sellan.
+//
+//   panel_publico         reportes anonimizados para el panel territorial
+//   registros             bloques de la cadena de certificados (sin datos personales)
+//   alertas_comunitarias  brotes de fraude por UPZ
+//
+// Privadas (solo backend): alertas_bosa, cadena, indicadores, conversaciones.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    match /alertas_bosa/{reporteId} {
-      allow read, write: if true;
+    match /panel_publico/{id} {
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Todo lo demás queda cerrado por defecto
+    match /registros/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /alertas_comunitarias/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Todo lo demás (incluida alertas_bosa, con los casos completos) queda cerrado
     match /{document=**} {
       allow read, write: if false;
     }

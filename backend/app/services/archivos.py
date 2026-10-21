@@ -3,11 +3,13 @@ Soporte de archivos adjuntos (multimodal).
 
 Valida los adjuntos que llegan del frontend o de Twilio (WhatsApp) y los
 normaliza para que el agente LLM pueda procesarlos:
-  - imágenes (PNG, JPEG) → parte visual en Base64
-  - PDF                  → parte PDF inline (Gemini) o texto extraído (OpenAI)
-  - TXT                  → texto plano inyectado al prompt
+  - imágenes (PNG, JPEG, WEBP) → parte visual en Base64
+  - PDF                        → parte PDF inline (Gemini) o texto extraído (OpenAI)
+  - TXT                        → texto plano inyectado al prompt
+  - audio (OGG, MP3, WAV)      → nota de voz: Gemini la transcribe y la analiza
 
-Límites y formatos controlados por variables de entorno (MAX_PESO_MB, MAX_ARCHIVOS).
+Límites y formatos controlados por variables de entorno (MAX_PESO_MB,
+MAX_PESO_AUDIO_MB, MAX_ARCHIVOS).
 """
 import base64
 import binascii
@@ -16,17 +18,42 @@ from io import BytesIO
 
 from app.core.config import settings
 
-MIME_SOPORTADOS = {"image/png", "image/jpeg", "application/pdf", "text/plain"}
+MIME_SOPORTADOS = {
+    "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain",
+    "audio/ogg", "audio/mpeg", "audio/wav",
+}
+
+# Alias frecuentes (navegadores, Twilio) → MIME canónico
+_ALIAS_MIME = {
+    "image/jpg": "image/jpeg",
+    "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav",
+    "audio/vnd.wave": "audio/wav",
+    "audio/opus": "audio/ogg",
+    "audio/mp3": "audio/mpeg",
+}
 
 # Firmas binarias (magic bytes) para validar que el archivo es lo que dice ser
 _MAGIC_BYTES = {
     "image/png": (b"\x89PNG\r\n\x1a\n",),
     "image/jpeg": (b"\xff\xd8\xff",),
+    "image/webp": (b"RIFF",),
     "application/pdf": (b"%PDF-",),
     "text/plain": (),  # texto plano sin firma binaria
+    "audio/ogg": (b"OggS",),
+    "audio/mpeg": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"),
+    "audio/wav": (b"RIFF",),
 }
 
+# Segunda firma en el byte 8 para contenedores RIFF
+_RIFF_SUBTIPO = {"image/webp": b"WEBP", "audio/wav": b"WAVE"}
+
 MAX_PESO_BYTES = settings.MAX_PESO_MB * 1024 * 1024
+MAX_PESO_AUDIO_BYTES = settings.MAX_PESO_AUDIO_MB * 1024 * 1024
+
+
+def es_audio(mime: str) -> bool:
+    return _normalizar_mime(mime).startswith("audio/")
 
 
 class AdjuntoInvalidoError(Exception):
@@ -41,7 +68,8 @@ class AdjuntoInvalidoError(Exception):
 
 
 def _normalizar_mime(mime: str) -> str:
-    return (mime or "").lower().split(";")[0].strip()
+    mime = (mime or "").lower().split(";")[0].strip()
+    return _ALIAS_MIME.get(mime, mime)
 
 
 def validar_adjunto(nombre: str, mime: str, base64_data: str) -> bytes:
@@ -67,15 +95,18 @@ def validar_adjunto(nombre: str, mime: str, base64_data: str) -> bytes:
     if not datos:
         raise AdjuntoInvalidoError(f"'{nombre}': el archivo está vacío.", codigo="corrupto")
 
-    if len(datos) > MAX_PESO_BYTES:
+    limite_mb = settings.MAX_PESO_AUDIO_MB if es_audio(mime) else settings.MAX_PESO_MB
+    if len(datos) > limite_mb * 1024 * 1024:
         raise AdjuntoInvalidoError(
             f"'{nombre}': el archivo pesa {len(datos) / 1_048_576:.1f} MB y el máximo es "
-            f"{settings.MAX_PESO_MB} MB. Comprime la imagen o adjunta un archivo más pequeño.",
+            f"{limite_mb} MB. Comprime el archivo o adjunta uno más pequeño.",
             codigo="peso",
         )
 
     firmas = _MAGIC_BYTES.get(mime, ())
-    if firmas and not any(datos.startswith(f) for f in firmas):
+    subtipo = _RIFF_SUBTIPO.get(mime)
+    firma_invalida = firmas and not any(datos.startswith(f) for f in firmas)
+    if firma_invalida or (subtipo and datos[8:12] != subtipo):
         raise AdjuntoInvalidoError(
             f"'{nombre}': el contenido no corresponde al tipo declarado ({mime}).",
             codigo="formato",
@@ -102,10 +133,12 @@ def extraer_texto_pdf(datos: bytes) -> str | None:
 
 
 def a_parte_gemini(mime: str, datos: bytes) -> dict:
-    """Parte inline en Base64 para la API de Gemini (imágenes y PDFs)."""
+    """Parte inline en Base64 para la API de Gemini (imágenes, PDFs y audio)."""
+    mime = _normalizar_mime(mime)
     return {
         "inline_data": {
-            "mime_type": _normalizar_mime(mime),
+            # Gemini nombra el MP3 como audio/mp3
+            "mime_type": "audio/mp3" if mime == "audio/mpeg" else mime,
             "data": base64.b64encode(datos).decode("ascii"),
         }
     }

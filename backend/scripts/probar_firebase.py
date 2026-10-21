@@ -21,7 +21,9 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from app.services.firebase_db import db  # noqa: E402
+from app.services.firebase_db import obtener_db  # noqa: E402
+
+db = obtener_db()
 
 COLECCION = "alertas_bosa"
 DOC_PRUEBA = "_conexion_prueba"

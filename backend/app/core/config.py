@@ -84,17 +84,61 @@ class Settings:
 
     # Admiten varias claves separadas por comas: si una se queda sin cuota o falla, se usa la siguiente
     GEMINI_API_KEYS = _parse_lista(os.getenv("GEMINI_API_KEY"))
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    # Modelo preferido; si no existe (p. ej. gemini-1.5-flash, ya retirado) se prueban
+    # los de GEMINI_MODELOS_RESPALDO en orden y se recuerda el primero que funcione
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
+    GEMINI_MODELOS_RESPALDO = _parse_lista(
+        os.getenv("GEMINI_MODELOS_RESPALDO", "gemini-flash-latest,gemini-3.8-flash,gemini-3.5-flash,gemini-flash-lite-latest,gemini-2.5-flash")
+    )
 
     OPENAI_API_KEYS = _parse_lista(os.getenv("OPENAI_API_KEY"))
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    # Segundos máximos de espera al LLM antes de caer al análisis heurístico
+    # Segundos máximos de espera por intento y en total antes de caer al análisis heurístico
     LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "15"))
+    LLM_PRESUPUESTO = float(os.getenv("LLM_PRESUPUESTO", "30"))
 
     # --- Archivos adjuntos (multimodal) ---
     MAX_ARCHIVOS = int(os.getenv("MAX_ARCHIVOS", "3"))
     MAX_PESO_MB = int(os.getenv("MAX_PESO_MB", "2"))
+    # Notas de voz (WhatsApp ogg / grabación web wav): ~60 s caben en 4 MB
+    MAX_PESO_AUDIO_MB = int(os.getenv("MAX_PESO_AUDIO_MB", "4"))
+
+    # --- Verificación en fuentes abiertas ---
+    # Tiempo máximo (s) de cada consulta externa: RDAP, URLhaus, Safe Browsing, acortadores
+    VERIFICACION_TIMEOUT = float(os.getenv("VERIFICACION_TIMEOUT", "4"))
+    # Opcionales: sin clave la fuente se omite y se informa como "no configurada"
+    URLHAUS_AUTH_KEY = os.getenv("URLHAUS_AUTH_KEY")
+    GOOGLE_SAFE_BROWSING_KEY = os.getenv("GOOGLE_SAFE_BROWSING_KEY")
+
+    # --- Registro trazable (cadena de hashes + OpenTimestamps) ---
+    OTS_CALENDARIOS = _parse_lista(os.getenv(
+        "OTS_CALENDARIOS",
+        "https://a.pool.opentimestamps.org,https://b.pool.opentimestamps.org,https://a.pool.eternitywall.com",
+    ))
+    OTS_TIMEOUT = float(os.getenv("OTS_TIMEOUT", "4"))
+
+    # --- Privacidad ---
+    # Sal para seudonimizar el teléfono del reportante (sha256(sal + número)). Cámbiala en producción.
+    SAL_SEUDONIMO = os.getenv("SAL_SEUDONIMO", "escudo-comunitario-bosa")
+
+    # --- Twilio extra ---
+    # Si TWILIO_AUTH_TOKEN existe, se valida la firma X-Twilio-Signature (desactivable para pruebas)
+    TWILIO_VALIDAR_FIRMA = _parse_bool(os.getenv("TWILIO_VALIDAR_FIRMA"), default=True)
+    # URL pública exacta configurada en Twilio (si el proxy cambia host/protocolo)
+    TWILIO_WEBHOOK_URL = os.getenv("TWILIO_WEBHOOK_URL")
+    # Remitente para alertas salientes, ej: whatsapp:+14155238886 (sandbox)
+    TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")
+
+    # --- Alertas comunitarias (brotes por UPZ) ---
+    # Números de líderes comunitarios separados por comas: whatsapp:+57300...
+    LIDERES_WHATSAPP = _parse_lista(os.getenv("LIDERES_WHATSAPP"))
+    BROTE_MINIMO = int(os.getenv("BROTE_MINIMO", "3"))          # reportes del mismo tipo en la UPZ
+    BROTE_VENTANA_HORAS = int(os.getenv("BROTE_VENTANA_HORAS", "48"))
+
+    # --- Vista de autoridades ---
+    # Token compartido con Policía/Fiscalía/organizaciones para consultar casos completos
+    AUTORIDADES_TOKEN = os.getenv("AUTORIDADES_TOKEN")
 
     # --- CORS ---
     # Lista separada por comas. Ej: https://escudo-comunitario.vercel.app,http://localhost:5173
@@ -102,6 +146,8 @@ class Settings:
 
     # --- API pública (para construir respuestas enlaces) ---
     API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+    # URL pública del frontend (enlaces de certificados y QR)
+    APP_URL = os.getenv("APP_URL", "https://escudocomunitario.vercel.app").rstrip("/")
 
     # Controla si se permite credenciales en CORS (no permitido con "*")
     ALLOW_CREDENTIALS = _parse_bool(os.getenv("ALLOW_CREDENTIALS"), default=False)
