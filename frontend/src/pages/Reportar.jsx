@@ -1,7 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { UPZ_BOSA, obtenerUpzMasCercana } from '../data/upz.js'
 import { dentroDeBosa } from '../data/bosaPolygon.js'
 import { nivelRiesgo } from '../utils/riesgo.js'
+import { useContador } from '../hooks/animacion.js'
+import Icono from '../components/Icono.jsx'
 
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
@@ -12,6 +15,23 @@ const MAX_PESO_BYTES = MAX_PESO_MB * 1024 * 1024
 
 const MIME_SOPORTADOS = ['application/pdf', 'text/plain', 'image/png', 'image/jpeg']
 const EXTENSIONES = ['.pdf', '.txt', '.png', '.jpg', '.jpeg']
+
+// Pista visual mientras se escribe; el veredicto real lo calcula el backend
+const SENALES = [
+    { id: 'enlace', etiqueta: 'Enlace', patron: /(https?:\/\/|www\.|\b[\w-]+\.(top|xyz|site|online|link|info|click|co|com|net)\b)/i },
+    { id: 'dinero', etiqueta: 'Dinero o premio', patron: /(\$\s?\d|millones|pesos|premio|ganaste|ganador|sorteo|subsidio)/i },
+    { id: 'urgencia', etiqueta: 'Urgencia', patron: /(urgente|inmediat|antes de las|hoy mismo|última oportunidad|ultima oportunidad|expira|vence|bloquead|suspendid)/i },
+    { id: 'pago', etiqueta: 'Pide pago o datos', patron: /(nequi|daviplata|consign|transfier|transferencia|clave|contraseña|código|codigo|pin\b|cuenta)/i },
+    { id: 'telefono', etiqueta: 'Número de celular', patron: /\b3\d{2}[\s-]?\d{3}[\s-]?\d{4}\b/ },
+]
+
+const PASOS_ANALISIS = [
+    'Leyendo el mensaje…',
+    'Extrayendo texto de los archivos…',
+    'Buscando señales de fraude…',
+    'Cruzando fuentes abiertas…',
+    'Sellando el certificado SHA-256…',
+]
 
 function extensionValida(nombre) {
     const punto = nombre.lastIndexOf('.')
@@ -27,6 +47,37 @@ function leerComoBase64(archivo) {
     })
 }
 
+/** Anillo animado con el porcentaje de riesgo. */
+function MedidorRiesgo({ valor, nivel }) {
+    const radio = 52
+    const circunferencia = 2 * Math.PI * radio
+    const [progreso, setProgreso] = useState(0)
+    const numero = useContador(valor, 1200)
+
+    useEffect(() => {
+        const marco = requestAnimationFrame(() => setProgreso(valor))
+        return () => cancelAnimationFrame(marco)
+    }, [valor])
+
+    return (
+        <div className={`medidor ${nivel.clase}`}>
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle className="medidor-pista" cx="60" cy="60" r={radio} />
+                <circle
+                    className="medidor-arco"
+                    cx="60" cy="60" r={radio}
+                    strokeDasharray={circunferencia}
+                    strokeDashoffset={circunferencia * (1 - progreso / 100)}
+                />
+            </svg>
+            <div className="medidor-centro">
+                <span className="medidor-valor">{numero}<small>%</small></span>
+                <span className="medidor-etiqueta">Riesgo {nivel.etiqueta.toLowerCase()}</span>
+            </div>
+        </div>
+    )
+}
+
 export default function Reportar() {
     const [mensaje, setMensaje] = useState('')
     const [upz, setUpz] = useState('')
@@ -36,6 +87,8 @@ export default function Reportar() {
     const [error, setError] = useState(null)
     const [cargando, setCargando] = useState(false)
     const [resultado, setResultado] = useState(null)
+    const [pasoAnalisis, setPasoAnalisis] = useState(0)
+    const [copiado, setCopiado] = useState(false)
 
     // Estados de geolocalización del dispositivo
     const [cargandoGps, setCargandoGps] = useState(false)
@@ -43,6 +96,21 @@ export default function Reportar() {
     const [errorGps, setErrorGps] = useState(null)
 
     const inputArchivo = useRef(null)
+    const seccionResultado = useRef(null)
+
+    const senales = useMemo(() => SENALES.filter(s => s.patron.test(mensaje)), [mensaje])
+
+    // Rota los mensajes de progreso mientras el backend analiza
+    useEffect(() => {
+        if (!cargando) return
+        setPasoAnalisis(0)
+        const id = setInterval(() => setPasoAnalisis(p => Math.min(p + 1, PASOS_ANALISIS.length - 1)), 1300)
+        return () => clearInterval(id)
+    }, [cargando])
+
+    useEffect(() => {
+        if (resultado) seccionResultado.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, [resultado])
 
     const agregarArchivos = async (lista) => {
         setErrorArchivo(null)
@@ -88,6 +156,15 @@ export default function Reportar() {
     const eliminarAdjunto = (indice) => {
         setAdjuntos(prev => prev.filter((_, i) => i !== indice))
         setErrorArchivo(null)
+    }
+
+    const pegarDelPortapapeles = async () => {
+        try {
+            const texto = await navigator.clipboard.readText()
+            if (texto) setMensaje(texto)
+        } catch {
+            setError('No pudimos leer el portapapeles. Pega el mensaje manualmente (Ctrl + V).')
+        }
     }
 
     const obtenerUbicacionDispositivo = () => {
@@ -172,233 +249,322 @@ export default function Reportar() {
 
             setResultado(await respuesta.json())
         } catch (err) {
-            setError(err.message || 'No se pudo enviar el reporte. Verifica tu conexión.')
+            // fetch lanza TypeError ("NetworkError…", "Failed to fetch") cuando no llega al servidor
+            setError(err instanceof TypeError
+                ? 'No pudimos conectar con el servidor de análisis. Verifica tu conexión o que el backend esté en línea e inténtalo de nuevo.'
+                : err.message || 'No se pudo enviar el reporte. Verifica tu conexión.')
         } finally {
             setCargando(false)
         }
     }
 
+    const copiarCertificado = async () => {
+        try {
+            await navigator.clipboard.writeText(resultado.certificado)
+            setCopiado(true)
+            setTimeout(() => setCopiado(false), 2000)
+        } catch { /* el código sigue visible para copiarlo a mano */ }
+    }
+
+    const nuevoReporte = () => {
+        setMensaje('')
+        setUpz('')
+        setAdjuntos([])
+        setResultado(null)
+        setError(null)
+        setErrorArchivo(null)
+        limpiarUbicacion()
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
     const nivel = resultado ? nivelRiesgo(resultado.nivel_riesgo) : null
+    const listo = mensaje.trim().length >= 10 || adjuntos.length > 0
 
     return (
         <div className="pagina-reporte">
-            <section className="encabezado">
-                <div>
-                    <h2>Canal de denuncia ciudadana</h2>
+            <section className="hero hero-compacto">
+                <div className="hero-texto">
+                    <span className="eyebrow"><Icono nombre="escudo" tamano={14} /> Canal de denuncia ciudadana</span>
+                    <h1>¿Te llegó un mensaje raro?</h1>
                     <p>
-                        Pega el mensaje sospechoso o adjunta una captura de pantalla,
-                        factura o PDF. Nuestra IA lee el archivo, lo cruza con tu texto
-                        y te entrega un certificado trazable.
+                        Pégalo aquí o sube una captura, factura o PDF. Nuestra IA lo lee, lo cruza con
+                        fuentes abiertas y te entrega un certificado trazable en segundos.
                     </p>
                 </div>
             </section>
 
-            <form className="formulario" onSubmit={enviar}>
-                <label htmlFor="mensaje">
-                    Mensaje sospechoso <span className="obligatorio">(texto)</span>
-                </label>
-                <textarea
-                    id="mensaje"
-                    rows={5}
-                    placeholder="Ej: Felicidades, ganaste un premio de $5.000.000 en la lotería Bogotá. Ingresa aquí www.premios-bogota.top y consigna el impuesto en Nequi 3001234567 antes de las 6pm…"
-                    value={mensaje}
-                    onChange={e => setMensaje(e.target.value)}
-                />
+            <div className="rejilla-reporte">
+                <form className="formulario" onSubmit={enviar}>
+                    {/* Paso 1: mensaje */}
+                    <fieldset className={`paso ${mensaje.trim().length >= 10 ? 'paso-completo' : ''}`}>
+                        <legend className="paso-titulo">
+                            <span className="paso-numero">{mensaje.trim().length >= 10 ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 1}</span>
+                            El mensaje sospechoso
+                        </legend>
 
-                <label>
-                    Archivos adjuntos <span className="obligatorio">
-                        (PDF, TXT, PNG o JPEG · máx. {MAX_PESO_MB} MB · {MAX_ARCHIVOS} archivos)
-                    </span>
-                </label>
+                        <div className="campo-texto">
+                            <textarea
+                                id="mensaje"
+                                rows={6}
+                                placeholder="Ej: Felicidades, ganaste un premio de $5.000.000 en la lotería Bogotá. Ingresa aquí www.premios-bogota.top y consigna el impuesto en Nequi 3001234567 antes de las 6pm…"
+                                value={mensaje}
+                                onChange={e => setMensaje(e.target.value)}
+                                aria-label="Mensaje sospechoso"
+                            />
+                            <div className="campo-texto-pie">
+                                <button type="button" className="boton-texto" onClick={pegarDelPortapapeles}>
+                                    <Icono nombre="portapapeles" tamano={15} /> Pegar
+                                </button>
+                                <span className="texto-suave">{mensaje.length} caracteres</span>
+                            </div>
+                        </div>
 
-                <div
-                    className={`zona-arrastre ${arrastrando ? 'arrastrando' : ''}`}
-                    onDragOver={e => { e.preventDefault(); setArrastrando(true) }}
-                    onDragLeave={() => setArrastrando(false)}
-                    onDrop={e => {
-                        e.preventDefault()
-                        setArrastrando(false)
-                        agregarArchivos(e.dataTransfer.files)
-                    }}
-                    onClick={() => inputArchivo.current?.click()}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={e => e.key === 'Enter' && inputArchivo.current?.click()}
-                >
-                    <span className="zona-arrastre-icono">📄</span>
-                    <span>
-                        Arrastra aquí tu captura o factura, o{' '}
-                        <strong>haz clic para seleccionar</strong>
-                    </span>
-                    <input
-                        ref={inputArchivo}
-                        type="file"
-                        multiple
-                        accept=".pdf,.txt,.png,.jpg,.jpeg"
-                        hidden
-                        onChange={e => {
-                            agregarArchivos(e.target.files)
-                            e.target.value = ''
-                        }}
-                    />
-                </div>
+                        <div className="senales" aria-live="polite">
+                            {senales.length > 0 ? (
+                                <>
+                                    <span className="senales-titulo"><Icono nombre="chispa" tamano={14} /> Señales que vemos:</span>
+                                    {senales.map(s => <span key={s.id} className="senal">{s.etiqueta}</span>)}
+                                </>
+                            ) : (
+                                <span className="texto-suave">Mientras escribes, te mostramos las señales típicas de fraude que detectemos.</span>
+                            )}
+                        </div>
+                    </fieldset>
 
-                {errorArchivo && <p className="error">⚠️ {errorArchivo}</p>}
+                    {/* Paso 2: evidencia */}
+                    <fieldset className={`paso ${adjuntos.length ? 'paso-completo' : ''}`}>
+                        <legend className="paso-titulo">
+                            <span className="paso-numero">{adjuntos.length ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 2}</span>
+                            Evidencia <span className="opcional">opcional</span>
+                        </legend>
 
-                {adjuntos.length > 0 && (
-                    <ul className="lista-adjuntos">
-                        {adjuntos.map((a, i) => (
-                            <li key={`${a.nombre}-${i}`} className="adjunto">
-                                {a.preview
-                                    ? <img src={a.preview} alt={a.nombre} className="adjunto-miniatura" />
-                                    : <span className="adjunto-icono">{a.mime === 'application/pdf' ? '📕' : '📜'}</span>}
-                                <span className="adjunto-info">
-                                    <strong>{a.nombre}</strong>
-                                    <small>{(a.tamano / 1024).toFixed(0)} KB</small>
-                                </span>
+                        <div
+                            className={`zona-arrastre ${arrastrando ? 'arrastrando' : ''} ${adjuntos.length >= MAX_ARCHIVOS ? 'llena' : ''}`}
+                            onDragOver={e => { e.preventDefault(); setArrastrando(true) }}
+                            onDragLeave={() => setArrastrando(false)}
+                            onDrop={e => {
+                                e.preventDefault()
+                                setArrastrando(false)
+                                agregarArchivos(e.dataTransfer.files)
+                            }}
+                            onClick={() => inputArchivo.current?.click()}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={e => e.key === 'Enter' && inputArchivo.current?.click()}
+                        >
+                            <span className="zona-arrastre-icono"><Icono nombre="subir" tamano={22} /></span>
+                            <span>
+                                Arrastra tu captura o factura, o <strong>selecciona un archivo</strong>
+                            </span>
+                            <small>PDF, TXT, PNG o JPEG · máx. {MAX_PESO_MB} MB · {adjuntos.length}/{MAX_ARCHIVOS} archivos</small>
+                            <input
+                                ref={inputArchivo}
+                                type="file"
+                                multiple
+                                accept=".pdf,.txt,.png,.jpg,.jpeg"
+                                hidden
+                                onChange={e => {
+                                    agregarArchivos(e.target.files)
+                                    e.target.value = ''
+                                }}
+                            />
+                        </div>
+
+                        {errorArchivo && <p className="aviso aviso-error"><Icono nombre="alerta" tamano={16} /> {errorArchivo}</p>}
+
+                        {adjuntos.length > 0 && (
+                            <ul className="lista-adjuntos">
+                                {adjuntos.map((a, i) => (
+                                    <li key={`${a.nombre}-${i}`} className="adjunto">
+                                        {a.preview
+                                            ? <img src={a.preview} alt={a.nombre} className="adjunto-miniatura" />
+                                            : <span className="adjunto-icono"><Icono nombre="archivo" tamano={20} /></span>}
+                                        <span className="adjunto-info">
+                                            <strong>{a.nombre}</strong>
+                                            <small>{a.mime === 'application/pdf' ? 'PDF' : a.mime.split('/')[1].toUpperCase()} · {(a.tamano / 1024).toFixed(0)} KB</small>
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="adjunto-eliminar"
+                                            title="Quitar archivo"
+                                            onClick={() => eliminarAdjunto(i)}
+                                        ><Icono nombre="cerrar" tamano={14} /></button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </fieldset>
+
+                    {/* Paso 3: ubicación */}
+                    <fieldset className={`paso ${upz ? 'paso-completo' : ''}`}>
+                        <legend className="paso-titulo">
+                            <span className="paso-numero">{upz ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 3}</span>
+                            ¿Dónde vives o te llegó?
+                        </legend>
+
+                        <div className="selector-upz" role="radiogroup" aria-label="Unidad de Planeamiento Zonal de Bosa">
+                            {UPZ_BOSA.map(u => (
+                                <button
+                                    key={u.nombre}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={upz === u.nombre}
+                                    className={`opcion-upz ${upz === u.nombre ? 'activa' : ''}`}
+                                    onClick={() => setUpz(upz === u.nombre ? '' : u.nombre)}
+                                    title={u.sectores}
+                                >
+                                    <span className="opcion-upz-codigo">{u.codigo}</span>
+                                    <strong>{u.nombre}</strong>
+                                    <small>{u.sectores}</small>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="geo-caja">
+                            <div className="geo-cabecera">
+                                <span className="geo-icono"><Icono nombre="mira" tamano={18} /></span>
+                                <div>
+                                    <span className="geo-titulo">Ubicación del dispositivo <span className="opcional">opcional</span></span>
+                                    <p className="geo-descripcion">
+                                        Si estás dentro de Bosa usamos tu punto exacto. Si estás en otra localidad,
+                                        usamos la UPZ elegida para no distorsionar el mapa comunitario.
+                                    </p>
+                                </div>
                                 <button
                                     type="button"
-                                    className="adjunto-eliminar"
-                                    title="Quitar archivo"
-                                    onClick={() => eliminarAdjunto(i)}
-                                >✕</button>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-
-                {/* 1. Selector de las 5 UPZ de Bosa */}
-                <label htmlFor="upz">
-                    Unidad de Planeamiento Zonal (UPZ) de Bosa{' '}
-                    <span className="obligatorio">(5 UPZ distritales)</span>
-                </label>
-                <select id="upz" value={upz} onChange={e => setUpz(e.target.value)}>
-                    <option value="">Selecciona tu UPZ…</option>
-                    {UPZ_BOSA.map(u => (
-                        <option key={u.nombre} value={u.nombre}>
-                            {u.codigo}: {u.nombre} ({u.sectores})
-                        </option>
-                    ))}
-                </select>
-
-                {/* 2. Caja interactiva de Geolocalización del Dispositivo */}
-                <div className="geo-caja">
-                    <div className="geo-cabecera">
-                        <div>
-                            <span className="geo-titulo">📍 Ubicación del dispositivo (GPS)</span>
-                            <p className="texto-suave geo-descripcion">
-                                Opcional: si estás dentro de Bosa se tomará tu punto exacto; si estás en otra localidad, se usará como referencia la UPZ seleccionada para proteger el mapa de calor comunitario.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            className="boton boton-secundario geo-boton"
-                            onClick={obtenerUbicacionDispositivo}
-                            disabled={cargandoGps}
-                        >
-                            {cargandoGps ? '⏳ Consultando GPS…' : (gpsInfo ? '🔄 Actualizar GPS' : '📍 Obtener mi ubicación')}
-                        </button>
-                    </div>
-
-                    {errorGps && (
-                        <div className="geo-alerta geo-alerta-error">
-                            ⚠️ {errorGps} Se georreferenciará mediante la UPZ seleccionada.
-                        </div>
-                    )}
-
-                    {gpsInfo && (
-                        <div className={`geo-alerta ${gpsInfo.enBosa ? 'geo-alerta-exito' : 'geo-alerta-aviso'}`}>
-                            <div className="geo-alerta-contenido">
-                                {gpsInfo.enBosa ? (
-                                    <>
-                                        <strong>🎯 Ubicación precisa dentro de Bosa verificada</strong>
-                                        <span>Coordenadas GPS: {gpsInfo.lat}, {gpsInfo.lng}. Se enviará tu punto exacto para máxima fidelidad en el mapa de calor.</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <strong>⚠️ Dispositivo ubicado fuera de Bosa</strong>
-                                        <span>Coordenadas detectadas: {gpsInfo.lat}, {gpsInfo.lng}. Para evitar distorsionar el mapa de calor comunitario de Bosa, tus coordenadas externas no se usarán y el reporte se ubicará en la <strong>UPZ {upz || 'seleccionada'}</strong>.</span>
-                                    </>
-                                )}
+                                    className="boton boton-secundario geo-boton"
+                                    onClick={obtenerUbicacionDispositivo}
+                                    disabled={cargandoGps}
+                                >
+                                    {cargandoGps
+                                        ? <><span className="spinner" /> Consultando…</>
+                                        : gpsInfo
+                                            ? <><Icono nombre="recargar" tamano={15} /> Actualizar</>
+                                            : <><Icono nombre="pin" tamano={15} /> Usar mi ubicación</>}
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                className="geo-limpiar-btn"
-                                onClick={limpiarUbicacion}
-                                title="Descartar ubicación GPS"
-                            >
-                                ✕
-                            </button>
+
+                            {errorGps && (
+                                <div className="aviso aviso-error">
+                                    <Icono nombre="alerta" tamano={16} />
+                                    <span>{errorGps} Se georreferenciará mediante la UPZ seleccionada.</span>
+                                </div>
+                            )}
+
+                            {gpsInfo && (
+                                <div className={`aviso ${gpsInfo.enBosa ? 'aviso-exito' : 'aviso-medio'}`}>
+                                    <Icono nombre={gpsInfo.enBosa ? 'check' : 'alerta'} tamano={16} />
+                                    <div className="aviso-contenido">
+                                        {gpsInfo.enBosa ? (
+                                            <>
+                                                <strong>Ubicación precisa dentro de Bosa verificada</strong>
+                                                <span>{gpsInfo.lat}, {gpsInfo.lng} · se enviará tu punto exacto al mapa de calor.</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <strong>Tu dispositivo está fuera de Bosa</strong>
+                                                <span>{gpsInfo.lat}, {gpsInfo.lng} · no usaremos estas coordenadas; el reporte se ubicará en la <strong>UPZ {upz || 'seleccionada'}</strong>.</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <button type="button" className="aviso-cerrar" onClick={limpiarUbicacion} title="Descartar ubicación GPS">
+                                        <Icono nombre="cerrar" tamano={14} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
+                    </fieldset>
 
-                <button className="boton boton-primario" type="submit" disabled={cargando}>
-                    {cargando
-                        ? '🔍 Analizando tu mensaje y tus archivos…'
-                        : 'Analizar y reportar'}
-                </button>
+                    <div className="envio">
+                        <button className={`boton boton-primario boton-grande boton-enviar ${cargando ? 'analizando' : ''}`} type="submit" disabled={cargando}>
+                            {cargando
+                                ? <><span className="spinner" /> <span key={pasoAnalisis} className="paso-analisis">{PASOS_ANALISIS[pasoAnalisis]}</span></>
+                                : <><Icono nombre="escudo" /> Analizar y reportar</>}
+                        </button>
+                        {!listo && !cargando && <span className="texto-suave envio-ayuda">Escribe el mensaje o adjunta un archivo para continuar.</span>}
+                        {error && <p className="aviso aviso-error"><Icono nombre="alerta" tamano={16} /> {error}</p>}
+                    </div>
+                </form>
 
-                {error && <p className="error">⚠️ {error}</p>}
-            </form>
+                <aside className="guia">
+                    <div className="panel guia-panel">
+                        <h2>Cómo reconocer un fraude</h2>
+                        <ul className="guia-lista">
+                            <li><span className="guia-icono fondo-alto-suave"><Icono nombre="reloj" tamano={16} /></span><div><strong>Te apuran</strong><p>“Antes de las 6 pm”, “tu cuenta será bloqueada”. La prisa es la herramienta principal del estafador.</p></div></li>
+                            <li><span className="guia-icono fondo-medio-suave"><Icono nombre="chispa" tamano={16} /></span><div><strong>Premios que no pediste</strong><p>Loterías, subsidios o rifas en las que nunca participaste.</p></div></li>
+                            <li><span className="guia-icono fondo-bajo-suave"><Icono nombre="clip" tamano={16} /></span><div><strong>Enlaces extraños</strong><p>Dominios como <code>.top</code>, <code>.xyz</code> o nombres que imitan a bancos y entidades.</p></div></li>
+                            <li><span className="guia-icono fondo-alto-suave"><Icono nombre="hash" tamano={16} /></span><div><strong>Piden pagos o claves</strong><p>Ninguna entidad seria te pide consignar a un Nequi personal ni tu código de verificación.</p></div></li>
+                        </ul>
+                    </div>
+                    <div className="panel guia-panel guia-nota">
+                        <Icono nombre="escudo" tamano={20} />
+                        <p>Tu reporte es anónimo. Solo guardamos el mensaje, la UPZ y una huella SHA-256 de los archivos.</p>
+                    </div>
+                </aside>
+            </div>
 
             {resultado && (
-                <section className={`veredicto ${nivel.clase}`}>
+                <section ref={seccionResultado} className={`veredicto ${nivel.clase}`}>
                     <div className="veredicto-cabecera">
-                        <div>
-                            <h3>Veredicto del análisis</h3>
-                            <p className="texto-suave">{resultado.resumen}</p>
-                        </div>
-                        <div className="semaforo" style={{ background: nivel.color }}>
-                            <span className="semaforo-valor">{resultado.nivel_riesgo}%</span>
-                            <span className="semaforo-etiqueta">Riesgo {nivel.etiqueta}</span>
+                        <MedidorRiesgo valor={resultado.nivel_riesgo} nivel={nivel} />
+                        <div className="veredicto-texto">
+                            <span className="eyebrow">Veredicto del análisis</span>
+                            <h2>{nivel.id === 'alto' ? 'Muy probablemente es un fraude' : nivel.id === 'medio' ? 'Ten cuidado con este mensaje' : 'No vemos señales graves'}</h2>
+                            <p>{resultado.resumen}</p>
+                            {resultado.flags?.length > 0 && (
+                                <div className="flags">
+                                    {resultado.flags.map(flag => <span key={flag} className="flag">{flag}</span>)}
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {resultado.flags?.length > 0 && (
-                        <div className="flags">
-                            {resultado.flags.map(flag => <span key={flag} className="flag">{flag}</span>)}
-                        </div>
-                    )}
+                    <div className="veredicto-detalles">
+                        {resultado.verificacion?.hallazgos?.length > 0 && (
+                            <div className="bloque-detalle">
+                                <h3><Icono nombre="buscar" tamano={16} /> Coincidencias en fuentes abiertas</h3>
+                                {resultado.verificacion.hallazgos.map((h, i) => (
+                                    <div key={i} className="hallazgo-item">
+                                        <strong>{h.valor}</strong>
+                                        <span>{h.detalle}</span>
+                                        <small>{h.fuente}</small>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
-                    {resultado.adjuntos_analizados > 0 && (
-                        <div className="adjuntos-analizados">
-                            <h4>📎 Archivos analizados ({resultado.adjuntos_analizados})</h4>
-                            {resultado.adjuntos.map((a, i) => (
-                                <p key={i}>
-                                    <strong>{a.nombre}</strong> · {a.mime} · {(a.tamano / 1024).toFixed(0)} KB
-                                    <br />
-                                    <small>SHA-256: {a.sha256.slice(0, 32)}…</small>
-                                </p>
-                            ))}
-                        </div>
-                    )}
-
-                    {resultado.verificacion?.hallazgos?.length > 0 && (
-                        <div className="hallazgos">
-                            <h4>🔍 Coincidencias en fuentes abiertas</h4>
-                            {resultado.verificacion.hallazgos.map((h, i) => (
-                                <p key={i}>
-                                    <strong>{h.valor}</strong> — {h.detalle}
-                                    <br /><small>{h.fuente}</small>
-                                </p>
-                            ))}
-                        </div>
-                    )}
+                        {resultado.adjuntos_analizados > 0 && (
+                            <div className="bloque-detalle">
+                                <h3><Icono nombre="clip" tamano={16} /> Archivos analizados ({resultado.adjuntos_analizados})</h3>
+                                {resultado.adjuntos.map((a, i) => (
+                                    <div key={i} className="hallazgo-item">
+                                        <strong>{a.nombre}</strong>
+                                        <span>{a.mime} · {(a.tamano / 1024).toFixed(0)} KB</span>
+                                        <small className="mono">SHA-256 {a.sha256.slice(0, 32)}…</small>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
 
                     <div className="certificado-caja">
-                        <h4>🛡️ Certificado de reporte (SHA-256)</h4>
+                        <div className="certificado-cabecera">
+                            <h3><Icono nombre="escudo" tamano={16} /> Certificado de reporte</h3>
+                            <button type="button" className={`boton-texto ${copiado ? 'copiado' : ''}`} onClick={copiarCertificado}>
+                                <Icono nombre={copiado ? 'check' : 'copiar'} tamano={15} /> {copiado ? 'Copiado' : 'Copiar'}
+                            </button>
+                        </div>
                         <code>{resultado.certificado}</code>
                         <p className="texto-suave">
-                            Registrado en Bosa · UPZ {resultado.upz || resultado.barrio}
-                            {resultado.ubicacion_dispositivo_en_bosa ? ' (🎯 Ubicación GPS precisa en Bosa)' : ' (📍 Ubicación por UPZ zonal)'} ·{' '}
+                            UPZ {resultado.upz || resultado.barrio}
+                            {resultado.ubicacion_dispositivo_en_bosa ? ' · ubicación GPS precisa en Bosa' : ' · ubicación por UPZ zonal'} ·{' '}
                             {new Date(resultado.fecha).toLocaleString('es-CO')}
                         </p>
-                        <p className="texto-suave">
-                            Tu reporte ya aparece en el
-                            <a href="/"> panel de inteligencia territorial</a> y en el
-                            mapa de calor en tiempo real.
-                        </p>
+                    </div>
+
+                    <div className="veredicto-acciones">
+                        <Link to="/" className="boton boton-primario"><Icono nombre="mapa" /> Ver en el panel territorial</Link>
+                        <button type="button" className="boton boton-secundario" onClick={nuevoReporte}><Icono nombre="recargar" /> Hacer otro reporte</button>
                     </div>
                 </section>
             )}
