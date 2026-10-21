@@ -1,21 +1,27 @@
-# Entorno virtual
-venv/
-ENV/
-env/
+# --- Secrets / entorno ---
+.env
+.env.local
+backend/.env
+frontend/.env
+backend/serviceAccountKey.json
+*.pem
+*.key
 
-# Python cache
+# --- Python ---
 __pycache__/
 *.py[cod]
-*$py.class
+venv/
+.venv/
 
-# Variables de entorno y llaves secretas
-.env
-serviceAccountKey.json
-*.json.secret
+# --- Node ---
+frontend/node_modules/
+frontend/dist/
 
-# Node / Frontend
-node_modules/
-.next/
-dist/
-build/
-.vercel
+# --- Vercel ---
+.vercel/
+
+# --- Sistema / editores ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,63 +1,121 @@
-import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from '../services/firebase';
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { db } from '../services/firebase'
+import MapaCalor from '../components/MapaCalor.jsx'
+import { nivelRiesgo } from '../utils/riesgo.js'
 
 export default function Dashboard() {
-    const [alertas, setAlertas] = useState([]);
+    const [alertas, setAlertas] = useState([])
+    const [cargando, setCargando] = useState(true)
 
     useEffect(() => {
-        const q = query(collection(db, "alertas_bosa"), orderBy("fecha", "desc"));
+        const q = query(collection(db, 'alertas_bosa'), orderBy('fecha', 'desc'))
 
+        // onSnapshot: la consulta se actualiza en tiempo real
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            setAlertas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+            setAlertas(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+            setCargando(false)
+        }, () => setCargando(false))
 
-        return () => unsubscribe();
-    }, []);
+        return () => unsubscribe()
+    }, [])
+
+    const estadisticas = useMemo(() => {
+        const total = alertas.length
+        const alto = alertas.filter(a => (a.nivel_riesgo || 0) >= 70).length
+        const medio = alertas.filter(a => (a.nivel_riesgo || 0) >= 40 && (a.nivel_riesgo || 0) < 70).length
+        const promedio = total
+            ? Math.round(alertas.reduce((suma, a) => suma + (a.nivel_riesgo || 0), 0) / total)
+            : 0
+        return { total, alto, medio, promedio }
+    }, [alertas])
 
     return (
-        <div style={{ padding: '2rem', fontFamily: 'sans-serif', maxWidth: '1200px', margin: '0 auto' }}>
-            <h1 style={{ fontSize: '2rem', color: '#111827' }}>Escudo Comunitario Bosa</h1>
-            <p style={{ color: '#6b7280', marginBottom: '2rem' }}>Panel de Inteligencia Territorial en Tiempo Real</p>
+        <div>
+            <section className="encabezado">
+                <div>
+                    <h2>Panel de Inteligencia Territorial</h2>
+                    <p>Monitoreo en tiempo real de reportes de fraude en la localidad de Bosa</p>
+                </div>
+                <Link to="/reportar" className="boton boton-primario">🚩 Reportar mensaje sospechoso</Link>
+            </section>
 
-            <div style={{ display: 'grid', gap: '1rem' }}>
-                {alertas.length === 0 ? (
-                    <p style={{ color: '#9ca3af' }}>Esperando reportes...</p>
+            <section className="tarjetas-estadisticas">
+                <div className="tarjeta-estadistica">
+                    <span className="valor">{estadisticas.total}</span>
+                    <span className="etiqueta">Reportes totales</span>
+                </div>
+                <div className="tarjeta-estadistica borde-alto">
+                    <span className="valor">{estadisticas.alto}</span>
+                    <span className="etiqueta">Riesgo alto</span>
+                </div>
+                <div className="tarjeta-estadistica borde-medio">
+                    <span className="valor">{estadisticas.medio}</span>
+                    <span className="etiqueta">Riesgo medio</span>
+                </div>
+                <div className="tarjeta-estadistica borde-bajo">
+                    <span className="valor">{estadisticas.promedio}%</span>
+                    <span className="etiqueta">Riesgo promedio</span>
+                </div>
+            </section>
+
+            <div className="panel-mapa">
+                <h3>Mapa de calor · Bosa</h3>
+                {cargando ? (
+                    <p className="texto-suave">Cargando reportes…</p>
                 ) : (
-                    alertas.map(alerta => (
-                        <div key={alerta.id} style={{
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            padding: '1.5rem',
-                            background: '#ffffff',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                            borderLeft: alerta.nivel_riesgo >= 50 ? '5px solid #ef4444' : '5px solid #10b981'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                <strong style={{ fontFamily: 'monospace', color: '#374151' }}>
-                                    Certificado: {alerta.certificado}
-                                </strong>
-                                <span style={{
-                                    background: alerta.nivel_riesgo >= 50 ? '#fee2e2' : '#d1fae5',
-                                    color: alerta.nivel_riesgo >= 50 ? '#991b1b' : '#065f46',
-                                    padding: '4px 12px',
-                                    borderRadius: '999px',
-                                    fontWeight: 'bold',
-                                    fontSize: '0.875rem'
-                                }}>
-                                    Riesgo: {alerta.nivel_riesgo}%
-                                </span>
-                            </div>
-                            <p style={{ color: '#4b5563', fontSize: '1.1rem', margin: '0 0 1rem 0' }}>
-                                "{alerta.mensaje_original}"
-                            </p>
-                            <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
-                                Registrado: {new Date(alerta.fecha).toLocaleString('es-CO')}
-                            </div>
-                        </div>
-                    ))
+                    <MapaCalor reportes={alertas} />
                 )}
             </div>
+
+            <section>
+                <h3>Últimos reportes</h3>
+                <div className="lista-reportes">
+                    {alertas.length === 0 ? (
+                        <p className="texto-suave">
+                            {cargando ? 'Cargando…' : 'Aún no hay reportes. Sé el primero en reportar.'}
+                        </p>
+                    ) : (
+                        alertas.map(alerta => {
+                            const { color, etiqueta, clase } = nivelRiesgo(alerta.nivel_riesgo)
+                            return (
+                                <article key={alerta.id} className={`tarjeta-reporte ${clase}`}>
+                                    <div className="reporte-cabecera">
+                                        <strong className="certificado">#{(alerta.certificado || '').slice(0, 16)}…</strong>
+                                        <span className="chip" style={{ background: color }}>
+                                            {etiqueta} · {alerta.nivel_riesgo}%
+                                        </span>
+                                    </div>
+
+                                    <p className="reporte-mensaje">"{alerta.mensaje_original}"</p>
+
+                                    {alerta.flags?.length > 0 && (
+                                        <div className="flags">
+                                            {alerta.flags.map(flag => <span key={flag} className="flag">{flag}</span>)}
+                                        </div>
+                                    )}
+
+                                    {alerta.verificacion?.hallazgos?.length > 0 && (
+                                        <p className="hallazgo">
+                                            🔍 Cruce de fuentes: {alerta.verificacion.hallazgos[0].detalle}
+                                            {' '}({alerta.verificacion.hallazgos[0].valor})
+                                        </p>
+                                    )}
+
+                                    <div className="reporte-pie">
+                                        <span>📍 {alerta.barrio || 'Bosa'}</span>
+                                        <span>💬 {alerta.canal || 'whatsapp'}</span>
+                                        <span>
+                                            🕒 {new Date(alerta.fecha).toLocaleString('es-CO')}
+                                        </span>
+                                    </div>
+                                </article>
+                            )
+                        })
+                    )}
+                </div>
+            </section>
         </div>
-    );
+    )
 }
