@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import Dashboard from './pages/Dashboard.jsx'
 import Icono from './components/Icono.jsx'
+import { URL_TELEGRAM } from './utils/canales.js'
 
 // El formulario se descarga solo cuando se abre: el panel con el mapa arranca más ligero
 const Reportar = lazy(() => import('./pages/Reportar.jsx'))
@@ -60,7 +61,7 @@ function App() {
             <footer className="pie">
                 <span><Icono nombre="escudo" tamano={14} /> Escudo Comunitario · Localidad 07 Bosa, Bogotá D.C.</span>
                 <span>
-                    Certificados encadenados y sellados en Bitcoin · <NavLink to="/verificar">Verificar</NavLink> · <NavLink to="/autoridades">Autoridades</NavLink>
+                    Certificados encadenados y sellados en Bitcoin · <NavLink to="/verificar">Verificar</NavLink> · <a href={URL_TELEGRAM} target="_blank" rel="noreferrer">Telegram</a> · <NavLink to="/autoridades">Autoridades</NavLink>
                 </span>
             </footer>
         </div>

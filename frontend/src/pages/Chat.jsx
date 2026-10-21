@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import Icono from '../components/Icono.jsx'
 import GrabadorVoz from '../components/GrabadorVoz.jsx'
 import { pedir, sellarCertificado } from '../services/api.js'
+import { TELEGRAM_BOT, URL_TELEGRAM } from '../utils/canales.js'
 
 const CLAVE_SESION = 'escudo-chat-sesion'
 const MAX_PESO = 2 * 1024 * 1024
@@ -153,6 +154,9 @@ export default function Chat() {
                         El mismo asistente que atiende por WhatsApp. Escríbele, mándale una captura o
                         <strong> cuéntale lo que pasó con una nota de voz</strong>.
                     </p>
+                    <a href={URL_TELEGRAM} target="_blank" rel="noreferrer" className="boton boton-secundario enlace-telegram">
+                        <Icono nombre="mensaje" tamano={16} /> También en Telegram: @{TELEGRAM_BOT}
+                    </a>
                 </div>
             </section>
 

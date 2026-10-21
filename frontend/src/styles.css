@@ -1761,6 +1761,11 @@ code, .mono { font-family: var(--fuente-mono); }
 .chat-boton-icono.grabando small { font-variant-numeric: tabular-nums; font-weight: 700; }
 .chat-boton-icono:disabled { opacity: 0.5; cursor: progress; }
 
+.enlace-telegram { margin-top: 1rem; }
+.guia-telegram { text-decoration: none; border-color: rgba(56, 198, 232, 0.35); transition: border-color 0.2s; }
+.guia-telegram:hover { border-color: var(--cyan-claro); }
+.guia-telegram .icono { color: var(--cyan-claro) !important; }
+
 /* ---------- Responsivo ---------- */
 @media (max-width: 1080px) {
     .rejilla-inteligencia { grid-template-columns: 1fr 1fr; }
