@@ -195,10 +195,25 @@ def incrementar_indicadores(claves: list[tuple[str, str]], upz: str | None, cert
     fecha = ahora_iso()
     for tipo, valor in claves:
         ref = db.collection(COL_INDICADORES).document(_id_indicador(tipo, valor))
+        # Sin UPZ (reportes de chat) no se anota zona: ubicar_indicadores la agrega cuando llega
         lote.set(ref, {
             "tipo": tipo, "valor": valor, "veces": Increment(1), "ultima": fecha,
-            "upz": ArrayUnion([upz or "Sin UPZ"]), "certificados": ArrayUnion([certificado]),
+            "upz": ArrayUnion([upz] if upz else []), "certificados": ArrayUnion([certificado]),
         }, merge=True)
+    lote.commit()
+
+
+def ubicar_indicadores(certificado: str, upz: str):
+    """Agrega la UPZ, respondida después en el chat, a los indicadores del reporte."""
+    db = obtener_db()
+    snap = db.collection(COL_PRIVADA).document(certificado).get()
+    claves = [(i["tipo"], i["valor"]) for i in (snap.to_dict() or {}).get("indicadores", [])] if snap.exists else []
+    if not claves:
+        return
+    lote = db.batch()
+    for tipo, valor in claves:
+        ref = db.collection(COL_INDICADORES).document(_id_indicador(tipo, valor))
+        lote.set(ref, {"tipo": tipo, "valor": valor, "upz": ArrayUnion([upz])}, merge=True)
     lote.commit()
 
 

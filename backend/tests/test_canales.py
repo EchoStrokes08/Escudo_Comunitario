@@ -88,6 +88,8 @@ def test_reportes_del_chat_ubicados_despues_disparan_brote(cliente, enviados):  
         _telegram(api, "5. Tintal Sur")  # ...y la UPZ llega en el turno siguiente
     assert [e for e in enviados if "Alerta temprana" in e[2]]
     assert next(iter(base.alertas.values()))["upz"] == "Tintal Sur"
+    # Los números, cuentas y dominios del mensaje quedan con su zona, no "sin UPZ"
+    assert base.indicadores_upz and all(z == {"Tintal Sur"} for z in base.indicadores_upz.values())
 
 
 def test_whatsapp_meta_verificacion_y_mensajes(cliente, enviados):  # noqa: F811

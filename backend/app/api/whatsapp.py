@@ -170,6 +170,10 @@ async def _ubicar(usuario: str, certificado: str, upz: str, lat: float, lng: flo
     firebase_db.actualizar_ubicacion(certificado, upz, lat, lng, *generalizar_ubicacion(lat, lng))
     firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
     try:
+        firebase_db.ubicar_indicadores(certificado, upz)
+    except Exception as error:
+        log.warning("No se pudo ubicar los indicadores: %s", error)
+    try:
         publico = firebase_db.obtener_publico(certificado) or {}
     except Exception as error:
         log.warning("No se pudo leer el reporte ubicado: %s", error)

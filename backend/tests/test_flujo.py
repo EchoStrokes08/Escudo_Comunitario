@@ -17,6 +17,7 @@ class BaseEnMemoria:
         self.registros, self.privado, self.publico = {}, {}, {}
         self.estado = {"altura": -1, "ultimo_hash": registro.GENESIS}
         self.indicadores, self.conversaciones, self.alertas, self.lideres = {}, {}, {}, {}
+        self.indicadores_upz = {}
 
     def registrar_reporte(self, *, canal, reportante, mensaje, adjuntos, analisis, privado, publico, fecha=None):
         bloque = registro.construir_bloque(
@@ -61,6 +62,11 @@ class BaseEnMemoria:
     def incrementar_indicadores(self, claves, upz, certificado):
         for c in claves:
             self.indicadores[c] = self.indicadores.get(c, 0) + 1
+            self.indicadores_upz.setdefault(c, set()).update([upz] if upz else [])
+
+    def ubicar_indicadores(self, certificado, upz):
+        for i in self.privado[certificado].get("indicadores", []):
+            self.indicadores_upz.setdefault((i["tipo"], i["valor"]), set()).add(upz)
 
     def obtener_conversacion(self, u):
         return self.conversaciones.get(u, {})
