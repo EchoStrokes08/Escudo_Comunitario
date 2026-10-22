@@ -173,3 +173,13 @@ def test_firma_falsa_rechazada():
         validar_adjunto("falso.wav", "audio/wav", _b64(b"RIFF\0\0\0\0WEBP" + b"\0" * 20))
     with pytest.raises(AdjuntoInvalidoError):
         validar_adjunto("falso.png", "image/png", _b64(b"no soy png"))
+
+
+def test_saludos_no_se_analizan_como_reporte():
+    from app.api.whatsapp import _es_saludo
+    for saludo in ("hola", "Hola, buenas noches 👋", "holaaa cómo estás?", "Hola buenas tardes, me puedes ayudar por favor",
+                   "probando probando", "hola que tal todo bien"):
+        assert _es_saludo(saludo), saludo
+    for reporte in ("Hola ma, cambié de número, me prestas 200 mil", "Hola, te llegó un paquete, paga el envío aquí",
+                    "Bancolombia: su cuenta fue bloqueada ingrese a bit.ly/xx", "hola soy de nequi y necesito tu clave"):
+        assert not _es_saludo(reporte), reporte

@@ -17,6 +17,7 @@ para demos y para quien no tenga WhatsApp a mano.
 import base64
 import logging
 import re
+import unicodedata
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -52,6 +53,31 @@ SALUDO = (
 
 _SALUDOS = {"hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches",
             "menu", "menú", "ayuda", "inicio", "empezar", "hi"}
+# Palabras de saludo y cortesía: un mensaje hecho solo de ellas no es un reporte
+_PALABRAS_SALUDO = {
+    "hola", "holi", "hi", "hello", "ola", "buenas", "buenos", "buen", "dia", "dias", "tarde", "tardes",
+    "noche", "noches", "que", "tal", "como", "estas", "esta", "estan", "va", "vas", "todo", "bien", "muy",
+    "y", "tu", "usted", "ustedes", "menu", "ayuda", "inicio", "empezar", "start", "info", "informacion",
+    "gracias", "ok", "oki", "listo", "vale", "si", "no", "bot", "escudo", "comunitario", "bosa", "amigo",
+    "amiga", "hey", "saludos", "prueba", "probando", "test", "alguien", "ahi", "hay", "me", "ayudas",
+    "puedes", "ayudar", "necesito", "quiero", "por", "favor", "porfa", "pf", "a", "el", "la", "de", "en",
+}
+
+
+def _es_saludo(texto: str) -> bool:
+    """'Hola, buenas noches 👋', 'holaaa cómo estás?', 'probando'… → saludo; un mensaje real no."""
+    if len(texto) < 10:
+        return True
+    plano = unicodedata.normalize("NFKD", texto.lower()).encode("ascii", "ignore").decode()
+    if re.search(r"\d|https?://|www\.|\.(com|co|net)\b", plano):
+        return False
+    palabras = re.findall(r"[a-z]+", plano)
+    if not palabras:
+        return True  # solo emojis o signos
+    if len(palabras) > 12:
+        return False
+    # "holaaa" → "hola", "buenaaas" → "buenas"
+    return all(p in _PALABRAS_SALUDO or re.sub(r"(.)\1+", r"\1", p) in _PALABRAS_SALUDO for p in palabras)
 
 _TIMEOUT_DESCARGA = httpx.Timeout(10.0, connect=5.0)
 
@@ -215,7 +241,7 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
     if texto.lower().startswith("verificar"):
         return {"mensajes": _responder_verificacion(texto)}
 
-    if not crudos and (texto.lower().strip("!¡.?¿ ") in _SALUDOS or len(texto) < 10):
+    if not crudos and (texto.lower().strip("!¡.?¿ ") in _SALUDOS or _es_saludo(texto)):
         return {"mensajes": [SALUDO]}
 
     # 3. Reporte: validación de adjuntos
