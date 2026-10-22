@@ -95,11 +95,17 @@ def _cabeceras_meta() -> dict:
 async def enviar_whatsapp_meta(numero: str, texto: str, opciones: list[str] | None = None) -> bool:
     if not (settings.META_WHATSAPP_TOKEN and settings.META_PHONE_NUMBER_ID):
         return False
-    numero = re.sub(r"\D", "", numero)
+    if not numero:
+        return False
+    # Teléfono → "to"; BSUID (usuario que oculta su número, ej. "CO.1736...") → "recipient"
+    if re.fullmatch(r"[+\d\s-]+", numero):
+        destino = {"to": re.sub(r"\D", "", numero)}
+    else:
+        destino = {"recipient": numero}
     if opciones:
         # Mensaje de lista: la persona elige la UPZ con un toque
         cuerpo = {
-            "messaging_product": "whatsapp", "to": numero, "type": "interactive",
+            "messaging_product": "whatsapp", **destino, "type": "interactive",
             "interactive": {
                 "type": "list",
                 "body": {"text": texto[:1020]},
@@ -110,7 +116,7 @@ async def enviar_whatsapp_meta(numero: str, texto: str, opciones: list[str] | No
             },
         }
     else:
-        cuerpo = {"messaging_product": "whatsapp", "to": numero, "type": "text",
+        cuerpo = {"messaging_product": "whatsapp", **destino, "type": "text",
                   "text": {"body": texto[:4000], "preview_url": False}}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

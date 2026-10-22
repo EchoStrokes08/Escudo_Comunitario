@@ -46,8 +46,13 @@ def _validar_firma(cuerpo: bytes, firma: str):
         raise HTTPException(status_code=403, detail="Firma de Meta inválida")
 
 
+def _remitente(mensaje: dict) -> str:
+    """Teléfono del remitente o, si usa nombre de usuario y oculta su número, su BSUID (from_user_id)."""
+    return mensaje.get("from") or mensaje.get("from_user_id") or ""
+
+
 async def _atender(mensaje: dict):
-    numero = mensaje["from"]
+    numero = _remitente(mensaje)
     tipo = mensaje.get("type")
     texto, lat, lng, crudos = "", None, None, []
 
@@ -78,7 +83,7 @@ async def _atender(mensaje: dict):
         return
 
     turno = await conversar(
-        usuario=seudonimo(f"whatsapp:+{numero}"), texto=texto, crudos=crudos, lat=lat, lng=lng,
+        usuario=seudonimo(f"whatsapp:+{numero}" if numero.isdigit() else f"whatsapp:{numero}"), texto=texto, crudos=crudos, lat=lat, lng=lng,
         canal="whatsapp", sellar_en_linea=True,
     )
     mensajes = turno["mensajes"]
@@ -103,6 +108,6 @@ async def recibir_whatsapp_meta(request: Request):
                 except Exception as error:
                     # Meta reintenta si no recibe 200: se responde siempre para no duplicar reportes
                     log.exception("Error atendiendo WhatsApp de Meta: %s", error)
-                    await enviar_whatsapp_meta(mensaje.get("from", ""), "😕 Tuvimos un problema analizando tu "
+                    await enviar_whatsapp_meta(_remitente(mensaje), "😕 Tuvimos un problema analizando tu "
                                                                         "mensaje. Inténtalo de nuevo en un momento.")
     return {"ok": True}

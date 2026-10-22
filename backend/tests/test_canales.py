@@ -112,3 +112,35 @@ def test_whatsapp_meta_verificacion_y_mensajes(cliente, enviados):  # noqa: F811
     api.post("/api/whatsapp-meta/webhook", json=evento({"type": "interactive",
                                                        "interactive": {"list_reply": {"id": "3"}}}))
     assert base.publico[h]["upz"] == "Bosa Central"
+
+
+def test_whatsapp_meta_remitente_con_usuario_sin_numero(cliente, enviados):  # noqa: F811
+    # Quien usa nombre de usuario y oculta su número llega sin "from", solo con su BSUID
+    api, _ = cliente
+    evento = {"entry": [{"changes": [{"value": {"messages": [
+        {"from_user_id": "CO.1736735740751921", "type": "text", "text": {"body": "hola"}}]}}]}]}
+    assert api.post("/api/whatsapp-meta/webhook", json=evento).status_code == 200
+    assert enviados and all(e[1] == "CO.1736735740751921" for e in enviados)
+    assert "problema" not in enviados[0][2]
+
+
+def test_envio_meta_por_telefono_o_bsuid(monkeypatch):
+    import asyncio
+    from app.services import mensajeria
+    cuerpos = []
+
+    class Cliente:
+        def __init__(self, *_a, **_k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_a): return False
+        async def post(self, _url, json, headers):
+            cuerpos.append(json)
+            return type("R", (), {"status_code": 200, "text": ""})()
+
+    monkeypatch.setattr(mensajeria.httpx, "AsyncClient", Cliente)
+    monkeypatch.setattr(settings, "META_WHATSAPP_TOKEN", "token")
+    monkeypatch.setattr(settings, "META_PHONE_NUMBER_ID", "999")
+    asyncio.run(mensajeria.enviar_whatsapp_meta("+57 300 111 2233", "hola"))
+    asyncio.run(mensajeria.enviar_whatsapp_meta("CO.1736735740751921", "hola"))
+    assert cuerpos[0]["to"] == "573001112233" and "recipient" not in cuerpos[0]
+    assert cuerpos[1]["recipient"] == "CO.1736735740751921" and "to" not in cuerpos[1]
