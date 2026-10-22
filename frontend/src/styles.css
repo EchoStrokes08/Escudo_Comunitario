@@ -678,6 +678,15 @@ code, .mono { font-family: var(--fuente-mono); }
 .tarjeta-reporte.seleccionada .reporte-mensaje { -webkit-line-clamp: unset; line-clamp: unset; }
 
 .flags { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.75rem 0 0; }
+.causas-amenaza { margin: 1rem 0 0.25rem; padding: 0.85rem 1rem; border-radius: 12px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--borde, rgba(255, 255, 255, 0.08)); }
+.causas-amenaza h3 { display: flex; align-items: center; gap: 0.45rem; font-size: 0.95rem; margin: 0 0 0.55rem; }
+.causas-amenaza ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.causas-amenaza li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.causas-amenaza li > .icono { flex-shrink: 0; margin-top: 0.2rem; color: var(--medio, #f5a524); }
+.causas-amenaza li.verificada > .icono { color: var(--bajo); }
+.causas-amenaza small { color: var(--texto-suave); }
+.como-funciona { margin: 0.7rem 0 0; font-size: 0.86rem; color: var(--texto-suave); line-height: 1.5; }
+.como-funciona strong { color: inherit; font-weight: 600; }
 .flag {
     background: rgba(148, 170, 205, 0.07);
     border: 1px solid var(--borde);

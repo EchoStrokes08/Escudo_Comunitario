@@ -27,7 +27,7 @@
 {"id": "f027", "fraude": true, "tipo": "phishing", "texto": "4-72: Tu envío está retenido en aduana. Paga el arancel de $12.900 en https://bit.ly/aduana-472 para liberarlo"}
 {"id": "f028", "fraude": true, "tipo": "phishing", "texto": "Netflix: no pudimos procesar tu pago y tu cuenta será suspendida. Actualiza tu tarjeta en netflix-pagos-co.com"}
 {"id": "f029", "fraude": true, "tipo": "suplantacion_entidad", "texto": "Le habla el patrullero Ramírez de la Policía Nacional. Su cuenta está vinculada a un proceso de lavado. Para no ser capturado debe transferir sus ahorros a una cuenta segura de la Fiscalía"}
-{"id": "f030", "fraude": true, "tipo": "suplantacion_entidad", "texto": "Fiscalía General de la Nación. Citación judicial N° 2026-4471. Descargue el documento adjunto para conocer su proceso: fiscalia-citaciones.net/doc.apk"}
+{"id": "f030", "fraude": true, "tipo": "malware", "texto": "Fiscalía General de la Nación. Citación judicial N° 2026-4471. Descargue el documento adjunto para conocer su proceso: fiscalia-citaciones.net/doc.apk"}
 {"id": "f031", "fraude": true, "tipo": "phishing", "texto": "Nequi te regala $50.000 por ser cliente fiel. Reclámalos ingresando tu número y clave en nequi-regalos.com"}
 {"id": "f032", "fraude": true, "tipo": "phishing", "texto": "Apreciado usuario, su cuenta de WhatsApp será eliminada por inactividad. Verifique su cuenta en whatsapp-verificar.xyz en las próximas 2 horas"}
 {"id": "f033", "fraude": true, "tipo": "premio_falso", "texto": "Codensa / Enel: usted ganó un subsidio de energía por $280.000 por estrato 2. Para recibirlo envíe foto de su cédula y el código que le llegará por mensaje"}
@@ -64,10 +64,16 @@
 {"id": "f064", "fraude": true, "tipo": "phishing", "texto": "Gmail: tu almacenamiento está lleno y perderás tus correos. Aumenta gratis tu espacio iniciando sesión en google-almacenamiento.online"}
 {"id": "f065", "fraude": true, "tipo": "compra_falsa", "texto": "Boletas para el concierto de Karol G en El Campín, últimas disponibles a 180.000 c/u. Transfiere y te mando el QR por WhatsApp. No hago entrega en persona"}
 {"id": "f066", "fraude": true, "tipo": "suplantacion_entidad", "texto": "Secretaría de Movilidad: su licencia de conducción será suspendida por multas. Ponerse al día en movilidad-bogota-pagos.com con 70% de descuento"}
-{"id": "f067", "fraude": true, "tipo": "phishing", "texto": "Hola, te envío el comprobante del pago que te hice. Ábrelo aquí para confirmarlo: comprobante-transferencia.apk.download"}
+{"id": "f067", "fraude": true, "tipo": "malware", "texto": "Hola, te envío el comprobante del pago que te hice. Ábrelo aquí para confirmarlo: comprobante-transferencia.apk.download"}
 {"id": "f068", "fraude": true, "tipo": "extorsion", "texto": "Esto es una advertencia. Tenemos información de que usted reportó a nuestra gente. Consigne un millón para cerrar el tema o vamos por su familia"}
 {"id": "f069", "fraude": true, "tipo": "premio_falso", "texto": "Felicidades, ganaste un premio. Consigna $50.000 en Nequi 3009998877 antes de las 6pm para liberar tu bono de $2.000.000"}
 {"id": "f070", "fraude": true, "tipo": "phishing", "texto": "Estimado cliente de Nequi, por actualización del sistema debe validar su identidad. Envíe foto de su cédula por ambos lados y su clave a este WhatsApp"}
+{"id": "f071", "fraude": true, "tipo": "malware", "texto": "Descarga la nueva versión de WhatsApp Gold con funciones exclusivas que nadie más tiene: whatsapp-gold.apk"}
+{"id": "f072", "fraude": true, "tipo": "malware", "texto": "Hola, soy asesor de Daviplata. Para reversar la transacción errada instale la aplicación TeamViewer QuickSupport y dígame el ID que le aparece."}
+{"id": "f073", "fraude": true, "tipo": "malware", "texto": "DIAN: Factura electrónica pendiente de pago. Descargue el documento adjunto Factura_DIAN.exe para revisar el valor."}
+{"id": "f074", "fraude": true, "tipo": "malware", "texto": "¡Tu teléfono está infectado con 3 virus! Instala ahora Super Cleaner para protegerlo: http://limpieza-movil.top/cleaner.apk"}
+{"id": "f075", "fraude": true, "tipo": "malware", "texto": "Jajaja mira las fotos del paseo 😂 están en este archivo, ábrelo: fotos_paseo.apk"}
+{"id": "f076", "fraude": true, "tipo": "malware", "texto": "Nequi: para recibir el bono navideño debes instalar la app Nequi Plus desde nequi-plus.site, la de la tienda no tiene esa opción."}
 {"id": "l001", "fraude": false, "tipo": "legitimo", "texto": "Bancolombia le informa compra por $45.900 en ARA BOSA con su T.Deb *4512. 20/10/2026 14:32. Si tiene dudas comuníquese a la línea que aparece al respaldo de su tarjeta."}
 {"id": "l002", "fraude": false, "tipo": "legitimo", "texto": "Recibiste $20.000 de MARIA GOMEZ en tu Nequi. ¡Que lo disfrutes!"}
 {"id": "l003", "fraude": false, "tipo": "legitimo", "texto": "Tu código de WhatsApp: 482-917. No compartas este código con nadie."}
@@ -158,3 +164,6 @@
 {"id": "l088", "fraude": false, "tipo": "legitimo", "texto": "Mami, ¿me das permiso de ir a la casa de Valentina a hacer la tarea? Su mamá nos recoge a las 6"}
 {"id": "l089", "fraude": false, "tipo": "legitimo", "texto": "Compra aprobada por $89.900 en Falabella.com con tu tarjeta CMR *4410. Si no la reconoces, llama a la línea de la parte de atrás de tu tarjeta."}
 {"id": "l090", "fraude": false, "tipo": "legitimo", "texto": "La biblioteca El Tintal invita al taller gratuito de alfabetización digital para adultos mayores los miércoles a las 3 p.m."}
+{"id": "l091", "fraude": false, "tipo": "legitimo", "texto": "Daviplata: actualiza la app desde la Play Store o App Store para tener las nuevas funciones. Nunca descargues apps desde enlaces que te envíen."}
+{"id": "l092", "fraude": false, "tipo": "legitimo", "texto": "Te paso las fotos del paseo, las subí a la carpeta de Google Drive del grupo de la familia."}
+{"id": "l093", "fraude": false, "tipo": "legitimo", "texto": "Soporte técnico de la universidad: el aula virtual estará en mantenimiento el sábado de 2 a 6 am. No se requiere ninguna acción."}

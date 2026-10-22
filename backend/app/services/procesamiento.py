@@ -18,7 +18,7 @@ from app.services import firebase_db
 from app.services.alertas_comunitarias import detectar_brote, emitir_alerta
 from app.services.analizador import evaluar_fraude
 from app.services.anonimizar import anonimizar_texto, enmascarar, generalizar_ubicacion
-from app.services.orientacion import nombre_tipo, plan_accion
+from app.services.orientacion import como_funciona, nombre_tipo, plan_accion
 from app.services.puntuacion import calcular
 from app.services.registro import ahora, anclar_opentimestamps, completar_anclaje
 from app.services.verificador import claves_indicadores, verificar_mensaje
@@ -154,15 +154,55 @@ async def analizar(mensaje: str, adjuntos: list[dict], *, rapido: bool = False, 
     else:
         verificacion = verif_texto
 
-    # 4. Riesgo, confianza y orientación
+    # 4. Riesgo, confianza, tipo de amenaza, causas y orientación
     puntaje = calcular(analisis, verificacion, mensaje, adjuntos)
-    tipo = analisis["tipo_fraude"]
-    if puntaje["nivel_riesgo"] < 25:
-        tipo = "legitimo"
-    elif tipo == "legitimo" and puntaje["nivel"] != "bajo":
-        tipo = "otro"  # las fuentes abiertas subieron el riesgo aunque la IA no vio fraude
+    tipo = tipo_final(analisis["tipo_fraude"], puntaje, verificacion["hallazgos"])
     return {"analisis": analisis, "verificacion": verificacion, "puntaje": puntaje, "tipo": tipo,
+            "causas": causas_principales(analisis, verificacion["hallazgos"], tipo),
             "plan": plan_accion(tipo, puntaje["nivel_riesgo"]), "leido": leido}
+
+
+def tipo_final(tipo: str, puntaje: dict, hallazgos: list[dict]) -> str:
+    """Tipo de amenaza: el de la IA, corregido por lo que confirmaron las fuentes abiertas."""
+    if puntaje["nivel_riesgo"] < 25:
+        return "legitimo"
+    sugeridos = {h.get("sugiere") for h in hallazgos if not h.get("simulada")}
+    if "malware" in sugeridos:
+        return "malware"  # URLhaus solo lista sitios que distribuyen malware
+    if tipo in ("legitimo", "otro") and "phishing" in sugeridos:
+        return "phishing"
+    if tipo == "legitimo" and puntaje["nivel"] != "bajo":
+        return "otro"  # las fuentes abiertas subieron el riesgo aunque la IA no vio fraude
+    return tipo
+
+
+def causas_principales(analisis: dict, hallazgos: list[dict], tipo: str, maximo: int = 5) -> list[dict]:
+    """
+    Por qué el sistema llegó a este veredicto, de lo más fuerte a lo más débil:
+      1. Lo que confirmaron fuentes externas (OpenPhish, URLhaus, RDAP, reportes de vecinos…).
+      2. Lo que la IA explica citando la evidencia del mensaje (o el análisis local si no hubo IA).
+    """
+    if tipo == "legitimo":
+        return []
+    causas: list[dict] = []
+    externos = sorted((h for h in hallazgos if not h.get("simulada")), key=lambda h: -h.get("gravedad", 0))
+    for h in externos[:2]:
+        causas.append({"texto": f"{h['detalle']}: {h['valor']}", "origen": "verificado", "fuente": h["fuente"]})
+    usa_llm = analisis.get("motor") == "llm"
+    propias = analisis.get("causas") or ([] if usa_llm else (analisis.get("heuristico") or {}).get("causas", []))
+    if usa_llm and not propias:
+        propias = analisis.get("flags", [])  # modelos que no devolvieron causas: al menos sus señales
+    vistos = {c["texto"].lower() for c in causas}
+    confirmados = [h["valor"].lower() for h in externos[:2]]
+    for texto in propias:
+        if len(causas) >= maximo:
+            break
+        # Si una fuente externa ya confirmó ese enlace, no se repite la causa local sobre el mismo enlace
+        repetida = texto.lower().startswith("el enlace") and any(v in texto.lower() for v in confirmados)
+        if texto.lower() not in vistos and not repetida:
+            vistos.add(texto.lower())
+            causas.append({"texto": texto, "origen": "ia" if usa_llm else "local"})
+    return causas
 
 
 async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
@@ -170,7 +210,7 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
                            rapido: bool = False) -> dict:
     r = await analizar(mensaje, adjuntos, rapido=rapido)
     analisis, verificacion, puntaje = r["analisis"], r["verificacion"], r["puntaje"]
-    tipo, plan, leido = r["tipo"], r["plan"], r["leido"]
+    tipo, plan, leido, causas = r["tipo"], r["plan"], r["leido"], r["causas"]
     flags = analisis["flags"]
     resumen = analisis["resumen"]
 
@@ -199,6 +239,7 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "tipo_fraude": tipo,
         "entidad_suplantada": analisis.get("entidad_suplantada", ""),
         "flags": flags,
+        "causas": causas,
         "resumen": resumen,
         "verificacion": verificacion_guardada,
         "indicadores": [{"tipo": t, "valor": v} for t, v in indicadores],
@@ -216,6 +257,7 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "entidad_suplantada": analisis.get("entidad_suplantada", ""),
         "flags": flags,
         "resumen": anonimizar_texto(resumen, 400),
+        "causas": [{**c, "texto": anonimizar_texto(c["texto"], 300)} for c in causas],
         "hallazgos": hallazgos_publicos,
         "indicadores": [{"tipo": t, "valor": enmascarar(v)} for t, v in indicadores],
         "comunidad": comunidad_publica,
@@ -260,7 +302,8 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "confianza": puntaje["confianza"],
         "nivel_confianza": puntaje["nivel_confianza"],
         "factores_confianza": puntaje["factores"],
-        "tipo_fraude": {"id": tipo, "nombre": nombre_tipo(tipo)},
+        "tipo_fraude": {"id": tipo, "nombre": nombre_tipo(tipo), "como_funciona": como_funciona(tipo)},
+        "causas": causas,
         "entidad_suplantada": analisis.get("entidad_suplantada", ""),
         "flags": flags,
         "resumen": resumen,

@@ -6,13 +6,13 @@ Ecosistema de prevención de fraude digital para la Localidad de Bosa (Hackathon
 
 | Requisito | Implementación |
 |---|---|
-| **Detección y orientación con IA** | `services/analizador.py` — agente multimodal (Gemini con respaldo automático de modelos y claves, OpenAI opcional): texto, capturas (OCR), PDF y **notas de voz**. Devuelve riesgo, tipo de fraude, entidad suplantada, texto leído e indicadores. Defensa contra *prompt injection*. `services/puntuacion.py` calcula un **nivel de confianza explicable** (certeza del modelo + acuerdo con el análisis local + confirmaciones externas) y `services/orientacion.py` da un **plan de acción por tipo** (phishing, SIM swapping, estafa por WhatsApp, extorsión…) |
+| **Detección y orientación con IA** | `services/analizador.py` — agente multimodal (Gemini con respaldo automático de modelos y claves, OpenAI opcional): texto, capturas (OCR), PDF y **notas de voz**. Devuelve riesgo, **tipo de amenaza** (phishing, **malware**, SIM swapping, estafa por WhatsApp, extorsión…), entidad suplantada, texto leído, indicadores y las **causas principales** del veredicto, cada una citando la evidencia del mensaje ("el enlace nequi-pagos.top no es de Nequi"). Primero van las causas **confirmadas por fuentes externas** (URLhaus fija el tipo en malware y OpenPhish en phishing), y cada tipo trae una explicación de **cómo funciona ese engaño**. Defensa contra *prompt injection*. `services/puntuacion.py` calcula un **nivel de confianza explicable** (certeza del modelo + acuerdo con el análisis local + confirmaciones externas) y `services/orientacion.py` da un **plan de acción por tipo** (phishing, SIM swapping, estafa por WhatsApp, extorsión…) |
 | **Verificación en tiempo real** | `services/verificador.py` — en paralelo y con timeouts: **RDAP** (antigüedad real del dominio), **suplantación de marca** y typosquatting, expansión de **enlaces acortados**, **OpenPhish** (sitios de phishing activos, sin clave), **URLhaus** (malware) y **Google Safe Browsing** (con clave), enlaces a **direcciones IP**, **historial comunitario** ("esta cuenta ya fue reportada N veces") y lista de referencia (marcada como demo). Verifica también lo leído en capturas y audios |
-| **Registro trazable inmutable** | `services/registro.py` — cada reporte es un **bloque encadenado** (SHA-256 del JSON canónico + hash del anterior, en transacción) y se **sella en Bitcoin vía OpenTimestamps**. Página pública `/verificar` (íntegro/alterado, eslabones, comparación de huella en el navegador, descarga `.json` + `.ots`), **auditoría de toda la cadena** y **certificado imprimible con QR** (`/certificado/:hash`) |
+| **Registro trazable inmutable** | `services/registro.py` — cada reporte es un **bloque encadenado** (SHA-256 del JSON canónico + hash del anterior, en transacción) y se **sella en Bitcoin vía OpenTimestamps** en varios calendarios a la vez (`services/ots.py`, sin dependencias). Horas después la prueba se **completa sola** y se comprueba contra la **raíz de Merkle real del bloque de Bitcoin** (blockstream.info / mempool.space): el certificado pasa de "pendiente" a "confirmado en el bloque N". Cualquiera puede verificarlo **sin confiar en el servidor** con `scripts/verificar_certificado.py <código>`, con `ots verify` o en opentimestamps.org. Página pública `/verificar` (íntegro/alterado, eslabones, comparación de huella en el navegador, descarga `.json` + `.ots`), **auditoría de toda la cadena** y **certificado imprimible con QR** (`/certificado/:hash`) |
 | **Seguimiento del caso** | `services/seguimiento.py` — cada cambio de estado (**en revisión → remitido a Policía/Fiscalía → en investigación → cerrado**) es **otro bloque de la misma cadena** que apunta al certificado del reporte, con la huella de la nota pública, y se sella en Bitcoin: nadie puede reescribir cuándo se actuó ni qué se le respondió a la víctima. La víctima ve la **línea de tiempo** en `/verificar` y en el certificado, escribe `estado` en el bot y, si escribe `avísame`, **recibe cada avance por WhatsApp o Telegram** (único caso en que se guarda su contacto, con consentimiento, y se borra al cerrar el caso) |
 | **Canal accesible** | **Respuestas en audio** (`services/voz.py`): quien manda una nota de voz recibe el veredicto **hablado** (MP3) en Telegram y WhatsApp; `escuchar` lo repite. **Cartel imprimible con QR** (`/cartel`) para tiendas y conjuntos. Web: texto, capturas, PDF, **grabación de voz** y **"Escuchar resultado"** (síntesis de voz). **Un mismo bot conversacional** en 4 canales: chat web (`/chat`), **Telegram** (`api/telegram.py`, gratis), **WhatsApp oficial de Meta** (`api/whatsapp_meta.py`, gratis con número de prueba) y WhatsApp vía Twilio. Notas de voz, capturas, UPZ con botones o ubicación 📍, `verificar <código>`, `estado`, `escuchar`, `avísame` y suscripción de líderes a alertas (`/alertas`) |
 | **Panel territorial anonimizado** | `panel_publico` (solo lectura) sin datos personales: mensaje anonimizado, números enmascarados, enlaces desactivados, ubicación generalizada a ~200 m, reportante seudonimizado. Panel con mapa, **tendencia 14 días**, **tipos de fraude**, **entidades suplantadas**, **indicadores más reportados** y **alertas tempranas por UPZ** (aviso a líderes por WhatsApp). **Vista de autoridades** (`/autoridades`, token): casos por estado, **cambio de estado encadenado**, **casos agrupados por indicador** (una cuenta o dominio con N víctimas) con **paquete de evidencia** descargable, y exportación CSV |
-| **Evaluación medible** | `scripts/evaluar.py` + `tests/datos/evaluacion.jsonl` (**160 mensajes etiquetados**: 70 fraudes de 9 modalidades y 90 legítimos difíciles, como alertas reales de bancos, códigos OTP o familiares pidiendo plata de verdad): exactitud, precisión, sensibilidad, F1, **falsos positivos**, acierto del tipo y **calibración de la confianza**. Botón **"¿Te sirvió? / Era legítimo"** en el veredicto para medir en uso real |
+| **Evaluación medible** | `scripts/evaluar.py` con **dos conjuntos etiquetados**: desarrollo (`tests/datos/evaluacion.jsonl`, 169 mensajes) y **prueba** (`tests/datos/evaluacion_prueba.jsonl`, 62 mensajes escritos aparte y nunca usados para ajustar reglas). Incluyen 10 modalidades, malware entre ellas, y legítimos difíciles, como alertas reales de bancos, códigos OTP o familiares pidiendo plata de verdad: exactitud, precisión, sensibilidad, F1, **falsos positivos**, acierto del tipo y **calibración de la confianza**. Botón **"¿Te sirvió? / Era legítimo"** en el veredicto para medir en uso real |
 
 Diagnóstico en vivo: `GET /api/estado?probar_ia=1` · Documentación de la API: `/api/docs` · Pruebas: `cd backend && python -m pytest -q`
 
@@ -21,10 +21,20 @@ Diagnóstico en vivo: `GET /api/estado?probar_ia=1` · Documentación de la API:
 ```bash
 cd backend
 python scripts/evaluar.py --pausa 1.5 --salida ../docs/evaluacion.md   # agente de IA (requiere GEMINI_API_KEY o GROQ_API_KEY en .env)
-python scripts/evaluar.py --motor heuristico                          # solo el análisis local de respaldo
+python scripts/evaluar.py --motor heuristico --salida ../docs/evaluacion-heuristico.md   # solo el análisis local de respaldo
 ```
 
-Por defecto no consulta la red (resultados reproducibles) y **desactiva la lista de referencia de demostración**, para que ningún mensaje acierte por estar en ella. Resultado del análisis local de respaldo (sin IA), en [`docs/evaluacion-heuristico.md`](docs/evaluacion-heuristico.md): **precisión 90.9 %, falsos positivos 2.2 %, sensibilidad 28.6 %**. Casi nunca alarma de más, pero deja pasar muchos fraudes: por eso es solo el respaldo del agente de IA. El informe marca con una advertencia si la IA no respondió.
+Por defecto no consulta la red (resultados reproducibles) y **desactiva la lista de referencia de demostración**, para que ningún mensaje acierte por estar en ella. El informe marca con una advertencia si la IA no respondió.
+
+Análisis local de respaldo (sin IA, sin red), en [`docs/evaluacion-heuristico.md`](docs/evaluacion-heuristico.md). Combina señales (un anzuelo como premio, entidad, urgencia o amenaza, más lo que buscan: dinero, claves, códigos o instalar algo) y evalúa los enlaces contra los dominios oficiales:
+
+| Conjunto | Exactitud | Sensibilidad | Falsos positivos | Tipo correcto |
+|---|---|---|---|---|
+| **Prueba** (62 mensajes nunca vistos) | **95.2 %** | **90.6 %** | **0 %** | 79.3 % |
+| Desarrollo (169, usados para diseñar las reglas) | 100 % | 100 % | 0 % | 84.2 % |
+| Versión anterior (desarrollo) | 67.5 % | 28.6 % | 2.2 % | 75.0 % |
+
+La cifra que cuenta es la del conjunto de prueba: el 100 % de desarrollo solo dice que las reglas cubren los casos con los que se diseñaron. La confianza del análisis local es conservadora a propósito (~35 %): sin IA, el sistema prefiere decir "verifica" antes que dar una certeza que no tiene.
 
 ## Despliegue de la versión 2 (orden importante)
 
@@ -84,6 +94,7 @@ backend/
 │   │   ├── puntuacion.py             Riesgo final y nivel de confianza explicables (factores legibles)
 │   │   ├── orientacion.py            Tipos de fraude y plan de acción por tipo (123, 122, CAI Virtual…)
 │   │   ├── registro.py               Cadena de hashes SHA-256 (reportes y seguimiento) + OpenTimestamps + .ots
+│   │   ├── ots.py                    OpenTimestamps sin dependencias: sellar, completar y verificar contra Bitcoin
 │   │   ├── seguimiento.py            Línea de tiempo del caso y avisos a la víctima que pidió "avísame"
 │   │   ├── voz.py                    Veredicto hablado (MP3) para Telegram, WhatsApp y la web
 │   │   ├── firebase_db.py            Persistencia en Firestore (transacciones de la cadena)
@@ -96,7 +107,8 @@ backend/
 │       └── bosa_polygon.py           Polígono oficial de la Localidad 07 (fuente única de verdad)
 ├── scripts/
 │   ├── servidor_demo.py              Backend local con base EN MEMORIA (ensayo de la demo)
-│   ├── evaluar.py                    Métricas del detector con el conjunto etiquetado
+│   ├── evaluar.py                    Métricas del detector (conjuntos de desarrollo y de prueba)
+│   ├── verificar_certificado.py      Verificación independiente de un certificado (registro + .ots + Bitcoin)
 │   ├── migrar_v2.py                  Pasa los reportes antiguos a la cadena v2 (idempotente)
 │   ├── desplegar_reglas.py           Publica firestore.rules sin Firebase CLI
 │   ├── configurar_telegram.py        Registra webhook, comandos y descripción del bot
@@ -106,8 +118,11 @@ backend/
 │   ├── test_flujo.py                 Flujo completo de la API con base en memoria y red simulada
 │   ├── test_canales.py               Telegram y WhatsApp de Meta con la API de cada plataforma simulada
 │   ├── test_seguimiento.py           Estados encadenados, avisos, agrupados, evidencia, opinión y voz
-│   ├── test_evaluacion.py            Conjunto etiquetado bien formado y respaldo local sin falsas alarmas
-│   └── datos/evaluacion.jsonl        160 mensajes etiquetados (fraudes y legítimos)
+│   ├── test_evaluacion.py            Conjuntos bien formados y separados; piso de calidad del respaldo local
+│   ├── test_ots.py                   OpenTimestamps con la prueba oficial (bloque 358391 de Bitcoin)
+│   ├── datos/evaluacion.jsonl        Desarrollo: 169 mensajes etiquetados (fraudes y legítimos)
+│   ├── datos/evaluacion_prueba.jsonl Prueba: 62 mensajes que nunca se usaron para ajustar reglas
+│   └── datos/ots/                    Pruebas .ots reales (oficial confirmada y de la app pendiente)
 ├── requirements.txt                  Producción (FastAPI, firebase-admin, httpx, twilio, pypdf…)
 ├── requirements-dev.txt              Desarrollo y pruebas (pytest, pytest-asyncio)
 └── .env.example                      Plantilla de variables de entorno
@@ -150,6 +165,7 @@ frontend/src/
     ├── riesgo.js             Umbrales y colores de riesgo (iguales al backend)
     ├── canales.js            Enlaces públicos a Telegram (@EscudoBosaBot) y WhatsApp
     ├── estados.js            Estados del caso (iguales al backend)
+    ├── sello.js              Estado del sello en Bitcoin (pendiente / confirmado en el bloque N)
     └── tiempo.js             Formato de fechas relativas
 ```
 
@@ -263,8 +279,8 @@ Documentación interactiva completa en `/api/docs`.
 | `GET` | `/api/verificar/{hash}/prueba.ots` | Prueba OpenTimestamps, verificable en opentimestamps.org |
 | `GET` | `/api/cadena/estado` | Altura y último hash de la cadena |
 | `GET` | `/api/cadena/auditoria` | Recalcula todos los hashes y enlaces de la cadena |
-| `POST` | `/api/cadena/sellar/{codigo}` | Sella un reporte en Bitcoin justo después del veredicto (público, idempotente, limitado por IP) |
-| `POST` | `/api/cadena/anclar-pendientes` | Sella todos los reportes pendientes (token) |
+| `POST` | `/api/cadena/sellar/{codigo}` | Sella un reporte en Bitcoin justo después del veredicto o, si ya está sellado, completa su prueba con la confirmación del bloque (público, idempotente, limitado por IP) |
+| `POST` | `/api/cadena/anclar-pendientes` | Sella los reportes sin sello y completa los que esperan confirmación en Bitcoin (token) |
 | **Autoridades** | | |
 | `GET` | `/api/autoridades/casos` | Casos completos (`Authorization: Bearer <AUTORIDADES_TOKEN>`); `?formato=csv` para exportar |
 | `POST` | `/api/autoridades/casos/{hash}/estado` | `{ estado, actor, nota? }`: nuevo bloque de seguimiento, sellado y avisado a la víctima |

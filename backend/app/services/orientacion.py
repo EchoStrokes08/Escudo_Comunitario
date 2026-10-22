@@ -12,6 +12,7 @@ FISCALIA = "https://www.fiscalia.gov.co"
 
 TIPOS_FRAUDE: dict[str, str] = {
     "phishing": "Phishing (robo de claves o datos)",
+    "malware": "Malware (app o archivo que infecta tu celular)",
     "sim_swapping": "SIM swapping (robo de tu línea)",
     "estafa_whatsapp": "Estafa por WhatsApp (suplantan a un conocido)",
     "suplantacion_entidad": "Suplantación de entidad",
@@ -21,6 +22,31 @@ TIPOS_FRAUDE: dict[str, str] = {
     "empleo_falso": "Oferta de empleo o inversión falsa",
     "otro": "Otro fraude",
     "legitimo": "Sin indicios de fraude",
+}
+
+# Cómo funciona cada amenaza y qué buscan: para que la persona entienda el engaño, no solo el veredicto
+COMO_FUNCIONA: dict[str, str] = {
+    "phishing": "Te llevan a una página o formulario falso, idéntico al de tu banco o una entidad, para que "
+                "escribas tu usuario, clave o datos de tarjeta. Con eso entran a tu cuenta y sacan la plata.",
+    "malware": "Te piden instalar una app o abrir un archivo (.apk, .exe, .zip) que no viene de la tienda oficial, "
+               "o una app de control remoto (AnyDesk, TeamViewer). Una vez instalado, pueden ver lo que escribes, "
+               "leer tus SMS y códigos y manejar tu celular y tus apps del banco.",
+    "sim_swapping": "Buscan que les des un código o tus datos para pasar tu número a otra SIM. Con tu línea "
+                    "reciben tus códigos por SMS y recuperan tus cuentas de banco y WhatsApp.",
+    "estafa_whatsapp": "Se hacen pasar por un familiar o conocido con 'número nuevo' para pedirte plata con "
+                       "urgencia, o te piden el código de 6 dígitos para robarte tu WhatsApp.",
+    "suplantacion_entidad": "Usan el nombre de un banco, la Policía, la Fiscalía, la DIAN u otra entidad para "
+                            "asustarte o ilusionarte y que pagues o entregues datos sin verificar.",
+    "premio_falso": "Te anuncian un premio, subsidio o devolución que no existe y te cobran un 'impuesto', "
+                    "'envío' o 'trámite' para entregarlo. El premio nunca llega.",
+    "compra_falsa": "Ofrecen algo muy barato o fingen ser compradores para que pagues por adelantado o "
+                    "entregues códigos. Después desaparecen.",
+    "extorsion": "Usan amenazas o miedo (secuestro falso, 'vacuna', fotos íntimas) para que pagues rápido sin "
+                 "pensar ni consultar a nadie.",
+    "empleo_falso": "Prometen ganancias fáciles o un empleo bien pagado, pero primero te cobran exámenes, "
+                    "'recargas' o una inversión que nunca recuperas.",
+    "otro": "El mensaje tiene señales típicas de engaño: urgencia, dinero o datos personales de por medio.",
+    "legitimo": "No encontramos señales de engaño en el mensaje.",
 }
 
 _DENUNCIAR = {
@@ -60,6 +86,20 @@ PLANES: dict[str, list[dict]] = {
          "detalle": "Cambia de inmediato la clave del banco, del correo y de las apps donde uses la misma.",
          "urgente": True},
         _BANCO,
+        _DENUNCIAR,
+    ],
+    "malware": [
+        {"titulo": "No instales nada ni abras el archivo",
+         "detalle": "Las apps de bancos y entidades solo se descargan de Play Store o App Store. Nadie de soporte "
+                    "te pide instalar AnyDesk ni TeamViewer, ni dictar el código que aparece.",
+         "urgente": True},
+        {"titulo": "Si ya lo instalaste: desconecta y desinstala",
+         "detalle": "Pon el celular en modo avión, desinstala la app sospechosa (Ajustes > Aplicaciones) y revisa "
+                    "en Ajustes > Accesibilidad que ninguna app desconocida tenga permisos.",
+         "urgente": True},
+        {"titulo": "Cambia tus claves desde otro dispositivo",
+         "detalle": "Desde un celular o computador de confianza cambia las claves del banco y del correo. "
+                    "Llama a tu banco por la línea oficial y pide revisar movimientos."},
         _DENUNCIAR,
     ],
     "sim_swapping": [
@@ -155,3 +195,7 @@ def plan_accion(tipo: str, riesgo: int) -> list[dict]:
 
 def nombre_tipo(tipo: str) -> str:
     return TIPOS_FRAUDE.get(normalizar_tipo(tipo), TIPOS_FRAUDE["otro"])
+
+
+def como_funciona(tipo: str) -> str:
+    return COMO_FUNCIONA.get(normalizar_tipo(tipo), COMO_FUNCIONA["otro"])

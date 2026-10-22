@@ -36,6 +36,7 @@ export function nivelConfianza(confianza = 0) {
 /** Mismos tipos que backend/app/services/orientacion.py */
 export const TIPOS_FRAUDE = {
     phishing: 'Phishing',
+    malware: 'Malware',
     sim_swapping: 'SIM swapping',
     estafa_whatsapp: 'Estafa por WhatsApp',
     suplantacion_entidad: 'Suplantación de entidad',

@@ -85,7 +85,13 @@ _URL_REGEX = re.compile(
     r"(?:https?://|www\.)[^\s<>\"']+|\b[a-z0-9][a-z0-9\-]*(?:\.[a-z0-9\-]+)*\.[a-z]{2,}(?:/[^\s<>\"']*)?",
     re.IGNORECASE,
 )
-_TLD_VALIDOS_EXTRA = re.compile(r"\.(com|co|net|org|gov|info|top|xyz|site|online|click|link|ly|me|io|app|shop|store|live|vip|lat|cc|us|gd|at|gg|id)$")
+# TLD que se aceptan sin "http://" ni "www." delante (evita tomar "hola.que" por un dominio). Incluye
+# los baratos que más usan las páginas falsas (.club, .center, .win, .ru…): sin ellos, esos enlaces
+# ni siquiera se verificaban.
+_TLD_VALIDOS_EXTRA = re.compile(
+    r"\.(com|co|net|org|gov|edu|info|top|xyz|site|online|click|link|ly|me|io|app|shop|store|live|vip|lat|cc|us|gd"
+    r"|at|gg|id|club|center|win|ru|buzz|icu|cfd|sbs|rest|monster|bond|today|space|website|fun|pro|biz|tk|ml|ga"
+    r"|cf|gq|xin|work|page|blog)$")
 
 # Patrones de identificadores de cuenta en Colombia
 _PATRONES_CUENTA = [
@@ -364,7 +370,8 @@ async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
             # Coincidencia exacta de host: en hostings compartidos (pages.dev, vercel.app) no se marca a todos
             if hosts_phishing and dominio in hosts_phishing:
                 hallazgos.append({"tipo": "dominio", "valor": dominio, "detalle": "Reportado como sitio de phishing activo",
-                                  "fuente": "OpenPhish · sitios de phishing reportados", "gravedad": 35})
+                                  "fuente": "OpenPhish · sitios de phishing reportados", "gravedad": 35,
+                                  "sugiere": "phishing"})
 
     for ip in [d for d in registrables if es_ip(d)]:
         hallazgos.append({"tipo": "dominio", "valor": ip,
@@ -386,7 +393,7 @@ async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
         if info:
             hallazgos.append({"tipo": "dominio", "valor": dominio,
                               "detalle": f"Listado como malicioso en URLhaus ({info['urls']} URLs reportadas)",
-                              "fuente": "URLhaus (abuse.ch)", "gravedad": 35})
+                              "fuente": "URLhaus (abuse.ch)", "gravedad": 35, "sugiere": "malware"})
     for detectados, _err in res_sb:
         for dominio in sorted(detectados or []):
             hallazgos.append({"tipo": "dominio", "valor": dominio, "detalle": "Marcado como peligroso por Google",

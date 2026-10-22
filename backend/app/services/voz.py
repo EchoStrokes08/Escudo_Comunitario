@@ -40,6 +40,9 @@ def texto_de_caso(publico: dict) -> str:
         partes.append(f"Parece un caso de {nombre_tipo(tipo).lower()}.")
     if publico.get("resumen"):
         partes.append(_hablable(publico["resumen"]) + ".")
+    causa = next((c["texto"] for c in publico.get("causas") or [] if c.get("texto")), None)
+    if causa and nivel != "bajo":
+        partes.append("La razón principal: " + _hablable(causa) + ".")
     pasos = plan_accion(tipo, riesgo)[:3]
     if pasos:
         partes.append("Qué hacer ahora.")

@@ -150,6 +150,11 @@ async def _descargar_media(params: dict) -> list[dict]:
     return crudos
 
 
+# Twilio corta en 1.590 caracteres: el veredicto se arma por bloques y, si no cabe, se quitan
+# primero los opcionales para que el certificado (al final) nunca se pierda
+_LIMITE_MENSAJE = 1500
+
+
 def _formatear_veredicto(r: dict) -> str:
     nivel, riesgo, confianza = r["nivel"], r["nivel_riesgo"], r["confianza"]
     encabezado = {
@@ -157,29 +162,33 @@ def _formatear_veredicto(r: dict) -> str:
         "medio": f"⚠️ *CUIDADO · riesgo {riesgo}%*",
         "bajo": f"✅ *Riesgo bajo · {riesgo}%*",
     }[nivel]
-    lineas = [encabezado, f"Confianza del análisis: *{r['nivel_confianza']}* ({confianza}%)"]
+    cabeza = [encabezado, f"Confianza del análisis: *{r['nivel_confianza']}* ({confianza}%)"]
     if nivel != "bajo":
-        lineas.append(f"Tipo: {r['tipo_fraude']['nombre']}")
+        cabeza.append(f"Tipo de amenaza: *{r['tipo_fraude']['nombre']}*")
     if r.get("texto_detectado") and any(a["mime"].startswith("audio/") for a in r.get("adjuntos", [])):
-        lineas.append(f"🎤 Entendí: “{r['texto_detectado'][:160]}”")
-    lineas.append("")
-    lineas.append(r["resumen"])
+        cabeza.append(f"🎤 Entendí: “{r['texto_detectado'][:160]}”")
+    cabeza += ["", r["resumen"]]
 
-    externos = [h for h in r["verificacion"]["hallazgos"] if not h.get("simulada")][:2]
-    if externos:
-        lineas.append("")
-        lineas.append("🔎 *Lo comprobamos:*")
-        lineas += [f"• {h['detalle']}" for h in externos]
+    causas = r.get("causas", [])[:3]
+    por_que = ["🔎 *Por qué:*"] + [  # ✔️ = confirmado por una fuente externa; • = lo que explica el análisis
+        f"{'✔️' if c['origen'] == 'verificado' else '•'} {c['texto']}" for c in causas] if causas else []
+    como = [f"💡 *Cómo funciona este engaño:* {r['tipo_fraude']['como_funciona']}"] if (
+        nivel != "bajo" and r["tipo_fraude"].get("como_funciona")) else []
+    pasos = r["plan_accion"][:3]
+    plan = ["👉 *Qué hacer ahora:*"] + [f"{i}. *{p['titulo']}*. {p['detalle']}" for i, p in enumerate(pasos, 1)]
+    plan_corto = ["👉 *Qué hacer ahora:*"] + [f"{i}. *{p['titulo']}*." for i, p in enumerate(pasos, 1)]
+    cierre = [f"🔒 Certificado: {certificado_corto(r['certificado'])}…", r["url_certificado"]]
 
-    lineas.append("")
-    lineas.append("👉 *Qué hacer ahora:*")
-    for i, paso in enumerate(r["plan_accion"][:3], 1):
-        lineas.append(f"{i}. *{paso['titulo']}*. {paso['detalle']}")
+    def unir(*bloques: list[str]) -> str:
+        return "\n\n".join("\n".join(b) for b in bloques if b)
 
-    lineas.append("")
-    lineas.append(f"🔒 Certificado: {certificado_corto(r['certificado'])}…")
-    lineas.append(r["url_certificado"])
-    return "\n".join(lineas)
+    # De la versión más completa a la más corta; siempre conservan el porqué, el plan y el certificado
+    for bloques in ((cabeza, por_que, como, plan, cierre), (cabeza, por_que, plan, cierre),
+                    (cabeza, por_que, como, plan_corto, cierre), (cabeza, por_que, plan_corto, cierre)):
+        texto = unir(*bloques)
+        if len(texto) <= _LIMITE_MENSAJE:
+            return texto
+    return unir(cabeza, por_que[:3], plan_corto, cierre)
 
 
 def _responder_verificacion(texto: str) -> list[str]:
@@ -200,7 +209,7 @@ def _responder_verificacion(texto: str) -> list[str]:
 
 
 def _responder_estado(texto: str, ultimo: str | None) -> list[str]:
-    hallado = re.search(r"[0-9a-f]{16,64}", texto.lower())
+    hallado = re.search(r"\b[0-9a-f]{16,64}\b", texto.lower())
     codigo = hallado.group(0) if hallado else ultimo
     if not codigo:
         return ["Escribe *estado* seguido del código de tu certificado (mínimo 16 caracteres)."]

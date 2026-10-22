@@ -255,3 +255,40 @@ def test_simulador_chat_mismo_bot(cliente):
     # Ubicación del navegador dentro de Bosa completa el reporte
     r2 = api.post("/api/whatsapp/simulador", json={**sesion, "lat": 4.6060, "lng": -74.1860}).json()
     assert "UPZ" in r2["mensajes"][0] and base.publico[r["certificado"]]["upz"]
+
+
+def test_tipo_de_amenaza_y_causas(cliente):
+    api, base = cliente
+    d = api.post("/api/reporte-web", json={"mensaje": MENSAJE, "upz": "Tintal Sur"}).json()
+    # Las causas citan la evidencia: primero lo confirmado por fuentes externas
+    assert d["causas"] and d["causas"][0]["origen"] == "verificado"
+    assert any("nequi-verificacion-cliente.com" in c["texto"] for c in d["causas"])
+    assert d["tipo_fraude"]["como_funciona"]
+    # La versión pública de las causas no expone la cuenta del estafador
+    assert "3001234567" not in str(base.publico[d["certificado"]]["causas"])
+
+    malware = ("Bancolombia lanzó su nueva app. La de la tienda ya no funciona, instala la versión "
+               "actualizada desde este enlace: http://bancolombia-app.net/descarga.apk")
+    d = api.post("/api/reporte-web", json={"mensaje": malware, "upz": "Tintal Sur"}).json()
+    assert d["tipo_fraude"]["id"] == "malware" and d["nivel"] != "bajo"
+    assert any("AnyDesk" in p["detalle"] or "Play Store" in p["detalle"] for p in d["plan_accion"])
+
+
+def test_urlhaus_define_malware():
+    puntaje = {"nivel_riesgo": 80, "nivel": "alto"}
+    hallazgo = {"fuente": "URLhaus (abuse.ch)", "sugiere": "malware", "detalle": "x", "valor": "y", "gravedad": 35}
+    assert procesamiento.tipo_final("phishing", puntaje, [hallazgo]) == "malware"
+    assert procesamiento.tipo_final("phishing", puntaje, [{**hallazgo, "simulada": True}]) == "phishing"
+
+
+def test_veredicto_de_whatsapp_cabe_y_conserva_el_certificado():
+    from app.api.whatsapp import _formatear_veredicto
+    from app.services.orientacion import como_funciona, nombre_tipo, plan_accion
+    largo = "Te pide instalar una app fuera de la tienda oficial con un texto muy largo " * 3
+    r = {"nivel": "alto", "nivel_riesgo": 95, "confianza": 80, "nivel_confianza": "alta",
+         "tipo_fraude": {"id": "malware", "nombre": nombre_tipo("malware"), "como_funciona": como_funciona("malware")},
+         "resumen": "Resumen " * 40, "causas": [{"texto": largo, "origen": "ia"}] * 3,
+         "plan_accion": plan_accion("malware", 95), "certificado": "ab" * 32,
+         "url_certificado": "https://escudocomunitario.vercel.app/certificado/" + "ab" * 32, "adjuntos": []}
+    texto = _formatear_veredicto(r)
+    assert len(texto) <= 1590 and texto.endswith(r["url_certificado"]) and "Por qué" in texto

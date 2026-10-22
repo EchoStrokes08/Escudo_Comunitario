@@ -124,6 +124,32 @@ function Opinion({ certificado, nivel }) {
     )
 }
 
+/** Qué tipo de amenaza es, por qué lo decimos (evidencia) y cómo funciona ese engaño. */
+function CausasAmenaza({ tipo, causas }) {
+    if (!tipo || tipo.id === 'legitimo' || (!causas.length && !tipo.como_funciona)) return null
+    return (
+        <div className="causas-amenaza">
+            <h3><Icono nombre="mira" tamano={16} /> Por qué es {tipo.nombre.split(' (')[0].toLowerCase()}</h3>
+            {causas.length > 0 && (
+                <ul>
+                    {causas.map(c => (
+                        <li key={c.texto} className={c.origen === 'verificado' ? 'verificada' : ''}>
+                            <Icono nombre={c.origen === 'verificado' ? 'check' : 'alerta'} tamano={14} />
+                            <span>
+                                {c.texto}
+                                {c.origen === 'verificado' && <small> · confirmado en {c.fuente}</small>}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {tipo.como_funciona && (
+                <p className="como-funciona"><strong>Cómo funciona este engaño:</strong> {tipo.como_funciona}</p>
+            )}
+        </div>
+    )
+}
+
 export default function Veredicto({ resultado: r, onNuevo }) {
     const [copiado, setCopiado] = useState(false)
     const [sello, setSello] = useState(r.anclaje || { estado: 'en_proceso' })
@@ -147,7 +173,9 @@ export default function Veredicto({ resultado: r, onNuevo }) {
     const textoVoz = [
         TITULARES[nivel.id] + '.',
         `Riesgo ${r.nivel_riesgo} por ciento, confianza ${r.nivel_confianza}.`,
+        r.tipo_fraude?.id !== 'legitimo' ? `Tipo de amenaza: ${r.tipo_fraude?.nombre}.` : '',
         r.resumen,
+        r.causas?.length ? `La razón principal: ${r.causas[0].texto}.` : '',
         plan.length ? 'Qué hacer ahora:' : '',
         ...plan.slice(0, 3).map((p, i) => `${i + 1}. ${p.titulo}. ${p.detalle}`),
     ].join(' ')
@@ -180,6 +208,7 @@ export default function Veredicto({ resultado: r, onNuevo }) {
                             {r.flags.map(flag => <span key={flag} className="flag">{flag}</span>)}
                         </div>
                     )}
+                    <CausasAmenaza tipo={r.tipo_fraude} causas={r.causas || []} />
                     <BotonEscuchar texto={textoVoz} />
                     <Opinion certificado={r.certificado} nivel={nivel.id} />
                 </div>
