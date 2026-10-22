@@ -4,8 +4,8 @@ import { CENTRO_BOSA, MAX_BOUNDS, VERTICES_BOSA } from '../data/bosaPolygon.js'
 import { nivelRiesgo, TONOS } from '../utils/riesgo.js'
 import Icono from './Icono.jsx'
 
-/** Radio del punto de calor proporcional al nivel de riesgo (en metros). */
-const radioPorRiesgo = (riesgo = 0) => 250 + (riesgo * 12)
+/** Radio del punto de calor proporcional al nivel de riesgo (en metros): de 100 m (0%) a 300 m (100%). */
+const radioPorRiesgo = (riesgo = 0) => 100 + (riesgo * 2)
 
 // Los reportes llegan normalizados desde services/alertas.js: siempre con lat/lng dentro de Bosa
 export const tieneCoordenadas = (r) => typeof r.lat === 'number' && typeof r.lng === 'number'
