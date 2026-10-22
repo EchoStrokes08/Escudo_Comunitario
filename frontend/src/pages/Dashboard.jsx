@@ -146,9 +146,6 @@ export default function Dashboard() {
                         abiertas, se sella con un certificado inmutable y aparece aquí al instante, sin datos personales.
                     </p>
                 </div>
-                <Link to="/reportar" className="boton boton-primario boton-grande">
-                    <Icono nombre="bandera" /> Reportar mensaje sospechoso <Icono nombre="flecha" className="icono-flecha" />
-                </Link>
             </section>
 
             {alertasComunidad.length > 0 && (
