@@ -1,0 +1,2 @@
+# Pruebas de OpenTimestamps: su SHA-256 depende de los bytes exactos (sin conversión de fin de línea)
+backend/tests/datos/ots/** -text
