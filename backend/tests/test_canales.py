@@ -79,6 +79,17 @@ def test_lider_suscrito_recibe_alerta_de_brote(cliente, enviados):  # noqa: F811
     assert next(iter(base.alertas.values()))["lideres_notificados"] >= 1
 
 
+def test_reportes_del_chat_ubicados_despues_disparan_brote(cliente, enviados):  # noqa: F811
+    api, base = cliente
+    _telegram(api, "/alertas")
+    for _ in range(3):
+        _telegram(api, MENSAJE)  # el chat registra el reporte sin UPZ...
+        assert not base.alertas
+        _telegram(api, "5. Tintal Sur")  # ...y la UPZ llega en el turno siguiente
+    assert [e for e in enviados if "Alerta temprana" in e[2]]
+    assert next(iter(base.alertas.values()))["upz"] == "Tintal Sur"
+
+
 def test_whatsapp_meta_verificacion_y_mensajes(cliente, enviados):  # noqa: F811
     api, base = cliente
     r = api.get("/api/whatsapp-meta/webhook", params={"hub.mode": "subscribe",

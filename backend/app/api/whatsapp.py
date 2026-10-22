@@ -26,11 +26,12 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 from app.core.config import settings
 from app.core.limite import limitar_por_ip
+from app.core.riesgo import nivel as nivel_riesgo
 from app.services import firebase_db
 from app.services.anonimizar import generalizar_ubicacion, seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, obtener_coordenadas
-from app.services.procesamiento import procesar_reporte, sellar
+from app.services.procesamiento import procesar_reporte, revisar_brote, sellar
 from app.services.registro import certificado_corto, verificar_bloque
 
 router = APIRouter()
@@ -161,6 +162,21 @@ def _responder_verificacion(texto: str) -> list[str]:
             f"{settings.APP_URL}/verificar/{bloque['hash']}"]
 
 
+async def _ubicar(usuario: str, certificado: str, upz: str, lat: float, lng: float):
+    """
+    Completa la UPZ del reporte pendiente y revisa el brote en esa UPZ: en los chats el
+    reporte se registra sin UPZ, así que la alerta temprana solo puede salir aquí.
+    """
+    firebase_db.actualizar_ubicacion(certificado, upz, lat, lng, *generalizar_ubicacion(lat, lng))
+    firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
+    try:
+        publico = firebase_db.obtener_publico(certificado) or {}
+    except Exception as error:
+        log.warning("No se pudo leer el reporte ubicado: %s", error)
+        return
+    await revisar_brote(upz, publico.get("tipo_fraude", ""), nivel_riesgo(publico.get("nivel_riesgo", 0)))
+
+
 async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float | None, lng: float | None,
                     canal: str, sellar_en_linea: bool = False) -> dict:
     """
@@ -179,8 +195,7 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
     if pendiente and lat is not None and lng is not None:
         if dentro_de_bosa(lat, lng):
             upz = min(UPZ_BOSA, key=lambda n: (UPZ_BOSA[n][0] - lat) ** 2 + (UPZ_BOSA[n][1] - lng) ** 2)
-            firebase_db.actualizar_ubicacion(pendiente, upz, lat, lng, *generalizar_ubicacion(lat, lng))
-            firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
+            await _ubicar(usuario, pendiente, upz, lat, lng)
             return {"mensajes": [f"📍 Gracias. Ubicamos tu reporte en la UPZ *{upz}*. "
                                  f"Así alertamos a tus vecinos. ¡Cuídate!"]}
         return {"mensajes": ["Esa ubicación está fuera de Bosa. Responde con el número de tu UPZ:\n" + MENU_UPZ],
@@ -189,8 +204,7 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
     if pendiente and re.fullmatch(r"[1-5]", texto) and not crudos:
         upz = UPZ_MENU[int(texto) - 1]
         lat_upz, lng_upz = obtener_coordenadas(upz, seed=pendiente)
-        firebase_db.actualizar_ubicacion(pendiente, upz, lat_upz, lng_upz, *generalizar_ubicacion(lat_upz, lng_upz))
-        firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": None})
+        await _ubicar(usuario, pendiente, upz, lat_upz, lng_upz)
         return {"mensajes": [f"✅ Listo, reporte ubicado en la UPZ *{upz}*. Gracias por proteger a tu comunidad. 🛡️"]}
 
     # 2. Comandos

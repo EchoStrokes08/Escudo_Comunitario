@@ -78,6 +78,27 @@ async def sellar(certificado: str, timeout: float | None = None) -> dict:
     return anclaje
 
 
+async def revisar_brote(upz: str | None, tipo: str, nivel: str) -> dict | None:
+    """
+    Detecta y emite la alerta temprana de la UPZ (sin bloquear si falla). Se llama al
+    registrar el reporte y, en los chats, cuando la persona responde su UPZ después.
+    """
+    if not upz or nivel == "bajo":
+        return None
+    try:
+        alerta = await asyncio.to_thread(detectar_brote, upz, tipo)
+    except Exception as error:
+        log.warning("No se pudo revisar brotes: %s", error)
+        return None
+    if not alerta:
+        return None
+    try:
+        return await emitir_alerta(alerta)
+    except Exception as error:
+        log.warning("No se pudo emitir la alerta comunitaria: %s", error)
+        return alerta
+
+
 async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
                            upz: str | None, lat: float | None, lng: float | None,
                            rapido: bool = False) -> dict:
@@ -178,21 +199,8 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         except Exception as error:
             log.warning("No se pudo actualizar indicadores: %s", error)
 
-    def _brote():
-        if not upz or puntaje["nivel"] == "bajo":
-            return None
-        try:
-            return detectar_brote(upz, tipo)
-        except Exception as error:
-            log.warning("No se pudo revisar brotes: %s", error)
-            return None
-
-    _, alerta = await asyncio.gather(asyncio.to_thread(_indicadores), asyncio.to_thread(_brote))
-    if alerta:
-        try:
-            alerta = await emitir_alerta(alerta)
-        except Exception as error:
-            log.warning("No se pudo emitir la alerta comunitaria: %s", error)
+    _, alerta = await asyncio.gather(asyncio.to_thread(_indicadores),
+                                     revisar_brote(upz, tipo, puntaje["nivel"]))
     anclaje = {"estado": "en_proceso"}
 
     return {
