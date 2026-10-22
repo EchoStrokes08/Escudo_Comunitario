@@ -11,11 +11,13 @@ Cada reporte produce un "bloque" con campos canónicos (sin datos personales):
     rompe todos los siguientes y la auditoría lo detecta (verificar_cadena).
   - hash_mensaje es el SHA-256 del texto: la víctima puede probar que SU
     mensaje es el registrado sin que el texto se publique.
-  - Cada hash se envía a calendarios públicos de OpenTimestamps, que lo
-    agregan en una transacción de Bitcoin: un sello de tiempo externo que ni
-    los administradores de la base de datos pueden falsificar. El archivo
-    .ots resultante se verifica en https://opentimestamps.org junto con el
-    JSON canónico del bloque.
+  - Cada hash se envía a varios calendarios públicos de OpenTimestamps, que
+    lo agregan en una transacción de Bitcoin: un sello de tiempo externo que
+    ni los administradores de la base de datos pueden falsificar. Horas
+    después la prueba se completa (completar_anclaje) y se comprueba contra
+    la raíz de Merkle real del bloque de Bitcoin. El archivo .ots se verifica
+    en https://opentimestamps.org, con `ots verify` o con
+    scripts/verificar_certificado.py, junto con el JSON canónico del bloque.
 
 El certificado de reporte ES el hash del bloque.
 
@@ -31,11 +33,10 @@ escondidas cuándo se remitió un caso ni qué se le respondió a la víctima.
 import base64
 import hashlib
 import json
-
-import httpx
+from datetime import datetime, timezone
 
 from app.core.config import settings
-from app.core.red import SSL
+from app.services import ots
 
 VERSION = 1
 GENESIS = "0" * 64
@@ -58,9 +59,16 @@ ESTADOS_CASO: dict[str, str] = {
 }
 
 
+# Exactamente los espacios que quita String.prototype.trim() en el navegador. str.strip() de
+# Python quita además \x1c-\x1f y \x85, y no quita ﻿: con él, un mensaje que empezara o
+# terminara con esos caracteres daría otra huella en /verificar ("¿Es este mi mensaje?").
+_ESPACIOS_JS = ("\t\n\v\f\r           "
+                "       　﻿")
+
+
 def normalizar_mensaje(texto: str) -> str:
-    """Misma normalización que el frontend (Verificar.jsx): CRLF→LF y sin espacios en los extremos."""
-    return (texto or "").replace("\r\n", "\n").strip()
+    """Misma normalización que el frontend (api.js sha256Texto): CRLF→LF y trim() de JavaScript."""
+    return (texto or "").replace("\r\n", "\n").strip(_ESPACIOS_JS)
 
 
 def hash_mensaje(texto: str) -> str:
@@ -172,31 +180,52 @@ def verificar_cadena(bloques: list[dict]) -> dict:
 
 async def anclar_opentimestamps(hash_hex: str, timeout: float | None = None) -> dict:
     """
-    Envía el hash a un calendario público de OpenTimestamps. Devuelve la prueba
-    parcial (pendiente de confirmación en Bitcoin, normalmente en pocas horas).
+    Envía el hash a TODOS los calendarios públicos de OpenTimestamps en paralelo y combina
+    sus respuestas en una sola prueba (si un calendario desaparece, los otros la sostienen).
+    La prueba queda pendiente hasta que los calendarios la incluyan en Bitcoin (unas horas);
+    completar_anclaje la termina después.
     """
+    sello, aceptaron, errores = await ots.sellar(bytes.fromhex(hash_hex), settings.OTS_CALENDARIOS,
+                                                 timeout or settings.OTS_TIMEOUT)
+    if not sello:
+        return {"estado": "sin_anclar", "errores": errores}
+    return {
+        "estado": "pendiente_bitcoin",
+        "calendario": aceptaron[0],
+        "calendarios": aceptaron,
+        "fecha": ahora(),
+        "prueba_b64": base64.b64encode(ots.escribir_sello(sello)).decode("ascii"),
+    }
+
+
+async def completar_anclaje(hash_hex: str, anclaje: dict, timeout: float | None = None) -> dict | None:
+    """
+    Pide a los calendarios la parte de la prueba que ya llegó a Bitcoin y la comprueba contra la
+    raíz de Merkle real del bloque (exploradores públicos). Devuelve el anclaje actualizado, o None
+    si sigue igual (todavía no hay bloque de Bitcoin).
+    """
+    timeout = timeout or settings.OTS_TIMEOUT
     digest = bytes.fromhex(hash_hex)
-    errores = []
-    async with httpx.AsyncClient(verify=SSL, timeout=timeout or settings.OTS_TIMEOUT) as client:
-        for calendario in settings.OTS_CALENDARIOS:
-            try:
-                resp = await client.post(
-                    f"{calendario.rstrip('/')}/digest",
-                    content=digest,
-                    headers={"Accept": "application/vnd.opentimestamps.v1",
-                             "User-Agent": "EscudoComunitario/2.0"},
-                )
-                resp.raise_for_status()
-                return {
-                    "estado": "pendiente_bitcoin",
-                    "calendario": calendario,
-                    "prueba_b64": base64.b64encode(resp.content).decode("ascii"),
-                }
-            except Exception as error:
-                errores.append(f"{calendario}: {type(error).__name__}")
-    return {"estado": "sin_anclar", "errores": errores}
+    sello = ots.leer_respuesta_calendario(base64.b64decode(anclaje["prueba_b64"]), digest)
+    nuevas = await ots.completar(sello, timeout)
+    if not ots.bitcoin(sello):
+        return None
+    confirmacion = await ots.verificar_bitcoin(sello, timeout)
+    if not confirmacion or not confirmacion["valido"]:
+        # Nunca debería pasar con calendarios honestos: se deja constancia y no se marca como confirmado
+        return {**anclaje, "estado": "invalido", "bitcoin": confirmacion}
+    return {
+        **anclaje,
+        "estado": "confirmado_bitcoin",
+        "prueba_b64": base64.b64encode(ots.escribir_sello(sello)).decode("ascii") if nuevas else anclaje["prueba_b64"],
+        "bitcoin": {k: confirmacion[k] for k in ("altura", "bloque_hash", "hora_bloque", "fuente")},
+    }
 
 
 def archivo_ots(hash_hex: str, prueba_b64: str) -> bytes:
-    """Archivo .ots verificable en opentimestamps.org (junto con el JSON canónico)."""
+    """Archivo .ots verificable en opentimestamps.org o con `ots verify` (junto con el JSON canónico)."""
     return _OTS_MAGIC + _OTS_VERSION + _OTS_OP_SHA256 + bytes.fromhex(hash_hex) + base64.b64decode(prueba_b64)
+
+
+def ahora() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")

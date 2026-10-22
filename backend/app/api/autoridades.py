@@ -163,7 +163,8 @@ def evidencia(id_indicador: str, authorization: str = Header("")):
             "reportante": c.get("reportante"),
         } for c in casos],
         "como_verificar": "Cada certificado es el SHA-256 de un bloque encadenado y sellado en Bitcoin "
-                          "(OpenTimestamps). Ábralo en la URL de verificación o descargue registro.json y prueba.ots.",
+                          "(OpenTimestamps). Ábralo en la URL de verificación, o descargue registro.json y prueba.ots y "
+                          "compruébelos con `ots verify` o scripts/verificar_certificado.py, sin depender de este servidor.",
     }
     nombre = f"evidencia-{ind.get('tipo')}-{str(ind.get('valor'))[:24]}".replace("/", "-").replace(" ", "")
     return Response(

@@ -5,6 +5,7 @@ import LineaTiempo from '../components/LineaTiempo.jsx'
 import { auditarCadena, sellarCertificado, sha256Texto, urlPruebaOts, urlRegistroJson, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
 import { etiquetaEstado } from '../utils/estados.js'
+import { selloIncompleto, textoSello, URL_BLOQUE_BITCOIN } from '../utils/sello.js'
 
 function Auditoria() {
     const [estado, setEstado] = useState(null)
@@ -42,7 +43,8 @@ function Auditoria() {
                         <Icono nombre={estado.valida ? 'check' : 'alerta'} tamano={18} />
                         {estado.valida ? 'Cadena íntegra' : 'Se detectaron alteraciones'}
                     </strong>
-                    <span>{estado.integros} de {estado.total} bloques íntegros · {estado.anclados} sellados en OpenTimestamps</span>
+                    <span>{estado.integros} de {estado.total} bloques íntegros · {estado.anclados} sellados en OpenTimestamps
+                        {estado.confirmados_bitcoin !== undefined && ` · ${estado.confirmados_bitcoin} ya confirmados en Bitcoin`}</span>
                     {estado.errores.map((e, i) => (
                         <span key={i} className="error-auditoria">Bloque #{e.altura}: {e.motivo}
                             {e.hash && <> · <Link to={`/verificar/${e.hash}`} className="mono">{e.hash.slice(0, 12)}…</Link></>}
@@ -99,8 +101,8 @@ export default function Verificar() {
         verificarCertificado(codigo)
             .then(async d => {
                 setDatos(d)
-                // Si el sello en Bitcoin quedó pendiente, se completa ahora y se recarga
-                if (d.integro && !d.anclaje.descargable) {
+                // Si falta el sello o su confirmación en Bitcoin, se pide ahora y se recarga
+                if (d.integro && selloIncompleto(d.anclaje)) {
                     await sellarCertificado(d.certificado).catch(() => null)
                     setDatos(await verificarCertificado(d.certificado).catch(() => d))
                 }
@@ -207,10 +209,18 @@ export default function Verificar() {
                             <h3 className="subtitulo-bloque"><Icono nombre="candado" tamano={16} /> Sello de tiempo en Bitcoin</h3>
                             {datos.anclaje.descargable ? (
                                 <>
+                                    <p className={`sello-estado ${datos.anclaje.estado === 'confirmado_bitcoin' ? 'ok' : ''}`}>
+                                        <Icono nombre={datos.anclaje.estado === 'confirmado_bitcoin' ? 'check' : 'reloj'} tamano={14} />
+                                        {datos.anclaje.bitcoin
+                                            ? <a href={URL_BLOQUE_BITCOIN(datos.anclaje.bitcoin.altura)} target="_blank" rel="noreferrer">{textoSello(datos.anclaje)}</a>
+                                            : textoSello(datos.anclaje)}
+                                    </p>
                                     <p className="texto-suave">
-                                        Anclado vía OpenTimestamps ({datos.anclaje.calendario?.replace('https://', '')}).
-                                        Descarga los dos archivos y súbelos a <a href="https://opentimestamps.org" target="_blank" rel="noreferrer">opentimestamps.org</a> para
-                                        comprobarlo sin confiar en nosotros.
+                                        {datos.anclaje.estado === 'confirmado_bitcoin'
+                                            ? 'Comprobado contra la raíz de Merkle real de ese bloque: este registro ya existía cuando se minó y nadie puede cambiar su fecha. '
+                                            : 'Los calendarios publican en Bitcoin cada pocas horas; esta página completa la prueba sola cuando llega el bloque. '}
+                                        Descarga los dos archivos y súbelos a <a href="https://opentimestamps.org" target="_blank" rel="noreferrer">opentimestamps.org</a> (o
+                                        usa <code>ots verify</code>) para comprobarlo sin confiar en nosotros.
                                     </p>
                                     <div className="plan-enlaces">
                                         <a className="boton boton-secundario" href={urlRegistroJson(datos.certificado)}><Icono nombre="descargar" /> registro.json</a>

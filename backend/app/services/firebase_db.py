@@ -162,7 +162,8 @@ def borrar_avisos_caso(caso: str):
 
 def guardar_anclaje(h: str, anclaje: dict):
     """El anclaje no forma parte del hash: se puede completar después sin romper la cadena."""
-    datos = {**anclaje, "fecha": ahora_iso()}
+    # 'fecha' es cuándo se selló: al completar la prueba días después se conserva la original
+    datos = {"fecha": ahora_iso(), **anclaje}
     db = obtener_db()
     db.collection(COL_REGISTROS).document(h).update({"anclaje": datos})
     publico = db.collection(COL_PUBLICA).document(h)
@@ -228,6 +229,13 @@ def bloques_sin_anclar(limite: int = 50) -> list[str]:
     docs = (obtener_db().collection(COL_REGISTROS)
             .where("anclaje.estado", "in", ["sin_anclar", "en_proceso"]).limit(limite).stream())
     return [d.id for d in docs]
+
+
+def bloques_pendientes_bitcoin(limite: int = 50) -> list[dict]:
+    """Bloques sellados cuya prueba aún no llega a Bitcoin (para completarlas)."""
+    docs = (obtener_db().collection(COL_REGISTROS)
+            .where("anclaje.estado", "==", "pendiente_bitcoin").limit(limite).stream())
+    return [{**d.to_dict(), "hash": d.id} for d in docs]
 
 
 # --------------------------------------------------------------------------- #

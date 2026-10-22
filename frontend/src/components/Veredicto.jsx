@@ -5,6 +5,7 @@ import CodigoQR from './CodigoQR.jsx'
 import { nivelRiesgo } from '../utils/riesgo.js'
 import { useContador } from '../hooks/animacion.js'
 import { enviarOpinion, sellarCertificado } from '../services/api.js'
+import { textoSello } from '../utils/sello.js'
 
 const TITULARES = {
     alto: 'Muy probablemente es un fraude',
@@ -125,23 +126,23 @@ function Opinion({ certificado, nivel }) {
 
 export default function Veredicto({ resultado: r, onNuevo }) {
     const [copiado, setCopiado] = useState(false)
-    const [sello, setSello] = useState(r.anclaje?.estado || 'en_proceso')
+    const [sello, setSello] = useState(r.anclaje || { estado: 'en_proceso' })
     const nivel = nivelRiesgo(r.nivel_riesgo)
 
     // El veredicto se muestra al instante; el sello en Bitcoin (~2 s) se pide justo después
     useEffect(() => {
-        if (sello !== 'en_proceso') return
+        if (sello.estado !== 'en_proceso') return
         let vigente = true
         sellarCertificado(r.certificado)
-            .then(s => vigente && setSello(s.estado || 'sin_anclar'))
-            .catch(() => vigente && setSello('sin_anclar'))
+            .then(s => vigente && setSello(s.estado ? s : { estado: 'sin_anclar' }))
+            .catch(() => vigente && setSello({ estado: 'sin_anclar' }))
         return () => { vigente = false }
     }, [r.certificado]) // eslint-disable-line react-hooks/exhaustive-deps
     const hallazgos = r.verificacion?.hallazgos || []
     const fuentes = r.verificacion?.fuentes || []
     const plan = r.plan_accion || []
     const esAudio = (r.adjuntos || []).some(a => a.mime?.startsWith('audio/'))
-    const anclado = sello === 'pendiente_bitcoin'
+    const anclado = ['pendiente_bitcoin', 'confirmado_bitcoin'].includes(sello.estado)
 
     const textoVoz = [
         TITULARES[nivel.id] + '.',
@@ -279,12 +280,8 @@ export default function Veredicto({ resultado: r, onNuevo }) {
                     <ul className="sellos">
                         <li><Icono nombre="cadena" tamano={14} /> Encadenado al bloque anterior <span className="mono">{r.prev?.slice(0, 10)}…</span></li>
                         <li className={anclado ? '' : 'pendiente'}>
-                            {sello === 'en_proceso' ? <span className="spinner spinner-pequeno" /> : <Icono nombre="candado" tamano={14} />}
-                            {sello === 'en_proceso'
-                                ? 'Sellando en Bitcoin vía OpenTimestamps…'
-                                : anclado
-                                    ? 'Sellado en Bitcoin vía OpenTimestamps (confirmación en ~horas)'
-                                    : 'Sello en Bitcoin pendiente: se reintentará'}
+                            {sello.estado === 'en_proceso' ? <span className="spinner spinner-pequeno" /> : <Icono nombre="candado" tamano={14} />}
+                            {textoSello(sello)}
                         </li>
                         <li><Icono nombre="pin" tamano={14} /> UPZ {r.upz} · {new Date(r.fecha).toLocaleString('es-CO')}</li>
                         {nivel.id !== 'bajo' && (

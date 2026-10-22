@@ -4,6 +4,7 @@ import Icono from '../components/Icono.jsx'
 import CodigoQR from '../components/CodigoQR.jsx'
 import { sellarCertificado, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
+import { selloIncompleto, textoSello } from '../utils/sello.js'
 import LineaTiempo from '../components/LineaTiempo.jsx'
 
 /** Certificado de reporte imprimible (Ctrl+P → Guardar como PDF) con QR de verificación. */
@@ -18,7 +19,7 @@ export default function Certificado() {
                 // Un código de seguimiento lleva al certificado del reporte
                 if (d.tipo === 'seguimiento' && d.caso) d = await verificarCertificado(d.caso)
                 setDatos(d)
-                if (d.integro && !d.anclaje.descargable) {
+                if (d.integro && selloIncompleto(d.anclaje)) {
                     await sellarCertificado(d.certificado).catch(() => null)
                     setDatos(await verificarCertificado(d.certificado).catch(() => d))
                 }
@@ -89,9 +90,7 @@ export default function Certificado() {
                         <span>Bloque anterior</span>
                         <code className="tenue">{datos.enlaces.anterior}</code>
                         <span>Sello de tiempo</span>
-                        <p>{datos.anclaje.descargable
-                            ? `OpenTimestamps (${datos.anclaje.calendario?.replace('https://', '')}) · anclaje en Bitcoin`
-                            : 'Pendiente de anclaje externo'}</p>
+                        <p>{textoSello(datos.anclaje)}</p>
                     </div>
                     <div className="doc-qr">
                         <CodigoQR texto={urlVerificacion} tamano={132} />

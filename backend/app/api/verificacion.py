@@ -7,8 +7,8 @@ Verificación pública de certificados y auditoría de la cadena.
   GET  /api/verificar/{hash}/prueba.ots      Prueba OpenTimestamps (verificable en opentimestamps.org)
   GET  /api/cadena/estado                    Altura y último hash de la cadena
   GET  /api/cadena/auditoria                 Recalcula TODOS los hashes y enlaces
-  POST /api/cadena/sellar/{hash}             Sella el bloque en Bitcoin (público, idempotente)
-  POST /api/cadena/anclar-pendientes         Reintenta anclar bloques sin sello (requiere token)
+  POST /api/cadena/sellar/{hash}             Sella el bloque en Bitcoin o completa su prueba (público, idempotente)
+  POST /api/cadena/anclar-pendientes         Sella los bloques sin sello y completa los pendientes (token)
   GET  /api/voz/{hash}.mp3                   Veredicto hablado (versión pública del caso)
 """
 from fastapi import APIRouter, Header, HTTPException, Request, Response
@@ -16,7 +16,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 from app.core.config import settings
 from app.core.limite import limitar_por_ip
 from app.services import firebase_db
-from app.services.procesamiento import sellar
+from app.services.procesamiento import completar_sello, sellar
 from app.services.voz import audio_de_caso
 from app.services.registro import (
     CAMPOS_BLOQUE, CAMPOS_SEGUIMIENTO, GENESIS, anclar_opentimestamps, archivo_ots, canonico,
@@ -35,6 +35,18 @@ def _bloque_o_404(codigo: str) -> dict:
     if not bloque:
         raise HTTPException(status_code=404, detail="No encontramos ese certificado en el registro.")
     return bloque
+
+
+def _anclaje_publico(anclaje: dict) -> dict:
+    return {
+        "estado": anclaje.get("estado", "sin_anclar"),
+        "calendario": anclaje.get("calendario"),
+        "calendarios": anclaje.get("calendarios") or ([anclaje["calendario"]] if anclaje.get("calendario") else []),
+        "fecha": anclaje.get("fecha"),
+        # Bloque de Bitcoin que contiene el sello, comprobado contra su raíz de Merkle
+        "bitcoin": anclaje.get("bitcoin") if anclaje.get("estado") == "confirmado_bitcoin" else None,
+        "descargable": bool(anclaje.get("prueba_b64")),
+    }
 
 
 @router.get("/verificar/{codigo}")
@@ -73,12 +85,7 @@ def verificar(codigo: str):
             "siguiente": siguiente["hash"] if siguiente else None,
             "siguiente_apunta_aqui": bool(siguiente) and siguiente.get("prev") == h,
         },
-        "anclaje": {
-            "estado": anclaje.get("estado", "sin_anclar"),
-            "calendario": anclaje.get("calendario"),
-            "fecha": anclaje.get("fecha"),
-            "descargable": bool(anclaje.get("prueba_b64")),
-        },
+        "anclaje": _anclaje_publico(anclaje),
         "reporte": {
             "upz": publico.get("upz"),
             "tipo_fraude": publico.get("tipo_fraude"),
@@ -123,15 +130,18 @@ def auditoria():
     bloques = firebase_db.bloques_ordenados()
     resultado = verificar_cadena(bloques)
     anclados = sum(1 for b in bloques if (b.get("anclaje") or {}).get("prueba_b64"))
-    return {**resultado, "anclados": anclados,
+    confirmados = sum(1 for b in bloques if (b.get("anclaje") or {}).get("estado") == "confirmado_bitcoin")
+    return {**resultado, "anclados": anclados, "confirmados_bitcoin": confirmados,
             "ultimo_hash": bloques[-1]["hash"] if bloques else None}
 
 
 @router.post("/cadena/sellar/{codigo}")
 async def sellar_bloque(codigo: str, request: Request):
     """
-    Sella un bloque en Bitcoin (OpenTimestamps). Público e idempotente: el frontend lo llama
-    justo después de mostrar el veredicto para que la persona no espere los ~2 s del sello.
+    Sella un bloque en Bitcoin (OpenTimestamps) o, si ya está sellado, intenta completar su prueba
+    con la confirmación del bloque de Bitcoin. Público e idempotente: el frontend lo llama justo
+    después de mostrar el veredicto (para que la persona no espere el sello) y al abrir la
+    verificación de un certificado pendiente.
     """
     ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
     limitar_por_ip(f"sello:{ip}")
@@ -139,7 +149,9 @@ async def sellar_bloque(codigo: str, request: Request):
     anclaje = bloque.get("anclaje") or {}
     if not anclaje.get("prueba_b64"):
         anclaje = await sellar(bloque["hash"])
-    return {"certificado": bloque["hash"], "estado": anclaje.get("estado"), "calendario": anclaje.get("calendario")}
+    else:
+        anclaje = await completar_sello(bloque)
+    return {"certificado": bloque["hash"], **_anclaje_publico(anclaje)}
 
 
 @router.post("/cadena/anclar-pendientes")
@@ -151,7 +163,10 @@ async def anclar_pendientes(authorization: str = Header("")):
         anclaje = await anclar_opentimestamps(h)
         firebase_db.guardar_anclaje(h, anclaje)
         anclados += anclaje.get("estado") == "pendiente_bitcoin"
-    return {"anclados": anclados}
+    confirmados = 0
+    for bloque in firebase_db.bloques_pendientes_bitcoin():
+        confirmados += (await completar_sello(bloque)).get("estado") == "confirmado_bitcoin"
+    return {"anclados": anclados, "confirmados_bitcoin": confirmados}
 
 
 @router.get("/voz/{codigo}.mp3")

@@ -11,6 +11,7 @@ Flujo único de un reporte, compartido por el canal web y WhatsApp:
 """
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.services import firebase_db
@@ -19,7 +20,7 @@ from app.services.analizador import evaluar_fraude
 from app.services.anonimizar import anonimizar_texto, enmascarar, generalizar_ubicacion
 from app.services.orientacion import nombre_tipo, plan_accion
 from app.services.puntuacion import calcular
-from app.services.registro import anclar_opentimestamps
+from app.services.registro import ahora, anclar_opentimestamps, completar_anclaje
 from app.services.verificador import claves_indicadores, verificar_mensaje
 
 log = logging.getLogger("escudo.procesamiento")
@@ -76,6 +77,36 @@ async def sellar(certificado: str, timeout: float | None = None) -> dict:
     except Exception as error:
         log.warning("No se pudo guardar el anclaje: %s", error)
     return anclaje
+
+
+# Los calendarios agrupan los sellos y publican en Bitcoin cada pocas horas: no tiene sentido
+# preguntarles más de una vez cada 10 minutos por el mismo bloque
+_ESPERA_COMPLETAR_S = 600
+
+
+async def completar_sello(bloque: dict, timeout: float | None = None) -> dict:
+    """
+    Si la prueba del bloque sigue pendiente, intenta completarla con la confirmación de Bitcoin
+    (ver registro.completar_anclaje). Devuelve el anclaje vigente, actualizado o no.
+    """
+    anclaje = bloque.get("anclaje") or {}
+    if anclaje.get("estado") != "pendiente_bitcoin" or not anclaje.get("prueba_b64"):
+        return anclaje
+    ultimo = anclaje.get("ultimo_intento")
+    if ultimo and (datetime.now(timezone.utc) - datetime.fromisoformat(ultimo.replace("Z", "+00:00"))
+                   ).total_seconds() < _ESPERA_COMPLETAR_S:
+        return anclaje
+    try:
+        nuevo = await completar_anclaje(bloque["hash"], anclaje, timeout=timeout)
+    except Exception as error:
+        log.warning("No se pudo completar el sello de %s: %s", bloque["hash"][:12], error)
+        nuevo = None
+    nuevo = nuevo or {**anclaje, "ultimo_intento": ahora()}
+    try:
+        firebase_db.guardar_anclaje(bloque["hash"], nuevo)
+    except Exception as error:
+        log.warning("No se pudo guardar el anclaje: %s", error)
+    return nuevo
 
 
 async def revisar_brote(upz: str | None, tipo: str, nivel: str) -> dict | None:

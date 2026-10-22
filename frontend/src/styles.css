@@ -1558,6 +1558,8 @@ code, .mono { font-family: var(--fuente-mono); }
 .eslabones li.pendiente { color: var(--texto-tenue); }
 .eslabones a, .resultado-auditoria a { color: var(--cyan-claro); }
 .subtitulo-bloque { margin-top: 1.25rem; }
+.sello-estado { display: flex; align-items: center; gap: 0.45rem; margin: 0.35rem 0 0.5rem; font-weight: 600; }
+.sello-estado.ok, .sello-estado.ok a { color: var(--bajo); }
 .bloque-detalle .plan-enlaces .boton { padding: 0.5rem 0.85rem; font-size: 0.82rem; }
 .comparar { display: flex; flex-direction: column; gap: 0.6rem; }
 .comparar p { font-size: 0.82rem; }
