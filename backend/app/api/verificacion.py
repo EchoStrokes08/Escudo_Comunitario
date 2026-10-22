@@ -1,13 +1,15 @@
 """
 Verificación pública de certificados y auditoría de la cadena.
 
-  GET  /api/verificar/{codigo}               ¿El reporte existe y está íntegro? (hash completo o prefijo)
+  GET  /api/verificar/{codigo}               ¿El reporte existe y está íntegro? (hash completo o prefijo),
+                                             con la línea de tiempo del caso (bloques de seguimiento)
   GET  /api/verificar/{hash}/registro.json   JSON canónico del bloque (su SHA-256 = certificado)
   GET  /api/verificar/{hash}/prueba.ots      Prueba OpenTimestamps (verificable en opentimestamps.org)
   GET  /api/cadena/estado                    Altura y último hash de la cadena
   GET  /api/cadena/auditoria                 Recalcula TODOS los hashes y enlaces
   POST /api/cadena/sellar/{hash}             Sella el bloque en Bitcoin (público, idempotente)
   POST /api/cadena/anclar-pendientes         Reintenta anclar bloques sin sello (requiere token)
+  GET  /api/voz/{hash}.mp3                   Veredicto hablado (versión pública del caso)
 """
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 
@@ -15,9 +17,12 @@ from app.core.config import settings
 from app.core.limite import limitar_por_ip
 from app.services import firebase_db
 from app.services.procesamiento import sellar
+from app.services.voz import audio_de_caso
 from app.services.registro import (
-    CAMPOS_BLOQUE, GENESIS, anclar_opentimestamps, archivo_ots, canonico, verificar_bloque, verificar_cadena,
+    CAMPOS_BLOQUE, CAMPOS_SEGUIMIENTO, GENESIS, anclar_opentimestamps, archivo_ots, canonico,
+    es_seguimiento, hash_mensaje, verificar_bloque, verificar_cadena,
 )
+from app.services.seguimiento import linea_de_tiempo
 
 router = APIRouter()
 
@@ -37,6 +42,9 @@ def verificar(codigo: str):
     bloque = _bloque_o_404(codigo)
     h = bloque["hash"]
     integro = verificar_bloque(h, bloque)
+    seguimiento = es_seguimiento(bloque)
+    if seguimiento:
+        integro = integro and hash_mensaje(bloque.get("nota", "")) == bloque.get("hash_nota")
 
     if bloque["altura"] == 0:
         anterior_ok = bloque.get("prev") == GENESIS
@@ -46,12 +54,19 @@ def verificar(codigo: str):
     siguiente = firebase_db.bloque_siguiente(h)
 
     anclaje = bloque.get("anclaje") or {}
-    publico = firebase_db.obtener_publico(h) or {}
+    caso = (firebase_db.obtener_bloque(bloque["caso"]) if seguimiento else bloque) or {}
+    publico = (firebase_db.obtener_publico(caso["hash"]) or {}) if caso else {}
+    tiempo = linea_de_tiempo(caso) if caso else []
     return {
         "encontrado": True,
+        "tipo": "seguimiento" if seguimiento else "reporte",
         "integro": integro,
         "certificado": h,
-        "bloque": {k: bloque[k] for k in CAMPOS_BLOQUE if k in bloque},
+        "caso": caso.get("hash"),
+        "bloque": {k: bloque[k] for k in (CAMPOS_SEGUIMIENTO if seguimiento else CAMPOS_BLOQUE) if k in bloque},
+        "nota": bloque.get("nota") if seguimiento else None,
+        "estado_caso": tiempo[-1] if tiempo else None,
+        "seguimiento": tiempo,
         "enlaces": {
             "anterior": bloque.get("prev"),
             "anterior_valido": anterior_ok,
@@ -137,3 +152,19 @@ async def anclar_pendientes(authorization: str = Header("")):
         firebase_db.guardar_anclaje(h, anclaje)
         anclados += anclaje.get("estado") == "pendiente_bitcoin"
     return {"anclados": anclados}
+
+
+@router.get("/voz/{codigo}.mp3")
+async def voz(codigo: str, request: Request):
+    """Veredicto hablado para quien prefiere escuchar (lo usan la web y el WhatsApp de Twilio)."""
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    limitar_por_ip(f"voz:{ip}")
+    bloque = _bloque_o_404(codigo)
+    publico = firebase_db.obtener_publico(bloque.get("caso") or bloque["hash"])
+    if not publico:
+        raise HTTPException(status_code=404, detail="Ese certificado no tiene un reporte público.")
+    audio = await audio_de_caso(publico)
+    if not audio:
+        raise HTTPException(status_code=503, detail="La voz no está disponible en este momento.")
+    return Response(content=audio, media_type="audio/mpeg",
+                    headers={"Cache-Control": "public, max-age=86400"})

@@ -11,6 +11,10 @@ Colecciones:
   conversaciones/{seudonimo}   PRIVADA: estado de la conversación de WhatsApp.
   alertas_comunitarias/{id}    PÚBLICA (solo lectura): brotes detectados por UPZ.
   suscriptores_alertas/{id}    PRIVADA: líderes que reciben las alertas (Telegram / WhatsApp).
+  avisos_caso/{id}             PRIVADA: quién pidió ("avísame") recibir los avances de su caso.
+                               Única excepción al "sin teléfono": consentimiento explícito, y se
+                               borra al cerrar el caso.
+  retroalimentacion/{id}       PRIVADA: "¿te sirvió?" / "era legítimo" de cada veredicto.
 
 El backend usa la cuenta de servicio (Admin SDK), que no está sujeta a las
 reglas de Firestore; el navegador solo puede leer las colecciones públicas.
@@ -26,7 +30,7 @@ from firebase_admin import credentials, firestore
 from google.cloud.firestore import Increment, ArrayUnion, Query, transactional
 
 from app.core.config import settings
-from app.services.registro import GENESIS, construir_bloque, hash_bloque
+from app.services.registro import GENESIS, construir_bloque, construir_seguimiento, hash_bloque
 
 COL_PRIVADA = "alertas_bosa"
 COL_PUBLICA = "panel_publico"
@@ -35,6 +39,8 @@ COL_INDICADORES = "indicadores"
 COL_CONVERSACIONES = "conversaciones"
 COL_ALERTAS_COMUNIDAD = "alertas_comunitarias"
 COL_SUSCRIPTORES = "suscriptores_alertas"
+COL_RETROALIMENTACION = "retroalimentacion"
+COL_AVISOS_CASO = "avisos_caso"
 
 
 @lru_cache(maxsize=1)
@@ -98,12 +104,70 @@ def registrar_reporte(*, canal: str, reportante: str, mensaje: str, adjuntos: li
     return _txn(db.transaction())
 
 
+def registrar_seguimiento(*, caso: str, estado: str, actor: str, nota: str) -> dict:
+    """
+    Agrega a la cadena un bloque de seguimiento (cambio de estado del caso) y
+    actualiza el estado en las versiones privada y pública, en una transacción.
+    """
+    db = obtener_db()
+    ref_estado = db.collection("cadena").document("estado")
+    fecha = ahora_iso()
+
+    @transactional
+    def _txn(transaction):
+        snap = ref_estado.get(transaction=transaction)
+        cadena = snap.to_dict() if snap.exists else {"altura": -1, "ultimo_hash": GENESIS}
+        bloque = construir_seguimiento(altura=cadena["altura"] + 1, prev=cadena["ultimo_hash"], fecha=fecha,
+                                       caso=caso, estado=estado, actor=actor, nota=nota)
+        h = hash_bloque(bloque)
+        transaction.set(db.collection(COL_REGISTROS).document(h),
+                        {**bloque, "hash": h, "nota": nota, "anclaje": {"estado": "en_proceso"}})
+        cambio = {"estado": estado, "estado_fecha": fecha, "estado_actor": actor, "estado_nota": nota}
+        transaction.update(db.collection(COL_PRIVADA).document(caso), cambio)
+        transaction.update(db.collection(COL_PUBLICA).document(caso), cambio)
+        transaction.set(ref_estado, {"altura": bloque["altura"], "ultimo_hash": h, "actualizado": fecha})
+        return {**bloque, "hash": h, "nota": nota}
+
+    return _txn(db.transaction())
+
+
+def seguimientos_de(caso: str) -> list[dict]:
+    """Bloques de seguimiento de un caso, en orden (se ordena aquí para no requerir índice compuesto)."""
+    docs = obtener_db().collection(COL_REGISTROS).where("caso", "==", caso).limit(100).stream()
+    return sorted(({**d.to_dict(), "hash": d.id} for d in docs), key=lambda b: b["altura"])
+
+
+def obtener_privado(h: str) -> dict | None:
+    snap = obtener_db().collection(COL_PRIVADA).document(h).get()
+    return snap.to_dict() if snap.exists else None
+
+
+def suscribir_avisos_caso(caso: str, canal: str, destino: str):
+    doc = hashlib.sha256(f"{caso}:{canal}:{destino}".encode()).hexdigest()[:40]
+    obtener_db().collection(COL_AVISOS_CASO).document(doc).set(
+        {"caso": caso, "canal": canal, "destino": destino, "fecha": ahora_iso()})
+
+
+def avisos_caso(caso: str) -> list[dict]:
+    return [d.to_dict() for d in obtener_db().collection(COL_AVISOS_CASO).where("caso", "==", caso).limit(20).stream()]
+
+
+def borrar_avisos_caso(caso: str):
+    db = obtener_db()
+    lote = db.batch()
+    for d in db.collection(COL_AVISOS_CASO).where("caso", "==", caso).limit(50).stream():
+        lote.delete(d.reference)
+    lote.commit()
+
+
 def guardar_anclaje(h: str, anclaje: dict):
     """El anclaje no forma parte del hash: se puede completar después sin romper la cadena."""
     datos = {**anclaje, "fecha": ahora_iso()}
     db = obtener_db()
     db.collection(COL_REGISTROS).document(h).update({"anclaje": datos})
-    db.collection(COL_PUBLICA).document(h).update({"anclaje": datos.get("estado")})
+    publico = db.collection(COL_PUBLICA).document(h)
+    if publico.get().exists:  # los bloques de seguimiento no tienen versión pública propia
+        publico.update({"anclaje": datos.get("estado")})
 
 
 def actualizar_ubicacion(h: str, upz: str | None, lat: float | None, lng: float | None,
@@ -203,6 +267,26 @@ def incrementar_indicadores(claves: list[tuple[str, str]], upz: str | None, cert
     lote.commit()
 
 
+def indicadores_reincidentes(minimo: int = 2, limite: int = 100) -> list[dict]:
+    """Dominios, cuentas y teléfonos reportados por varias personas: un caso con varias víctimas."""
+    docs = (obtener_db().collection(COL_INDICADORES).where("veces", ">=", minimo)
+            .order_by("veces", direction=Query.DESCENDING).limit(limite).stream())
+    return [{"id": d.id, **d.to_dict()} for d in docs]
+
+
+def obtener_indicador(id_indicador: str) -> dict | None:
+    snap = obtener_db().collection(COL_INDICADORES).document(id_indicador).get()
+    return {"id": snap.id, **snap.to_dict()} if snap.exists else None
+
+
+def casos_por_certificados(certificados: list[str]) -> list[dict]:
+    if not certificados:
+        return []
+    db = obtener_db()
+    refs = [db.collection(COL_PRIVADA).document(h) for h in certificados[:200]]
+    return [{"id": s.id, **s.to_dict()} for s in db.get_all(refs) if s.exists]
+
+
 def ubicar_indicadores(certificado: str, upz: str):
     """Agrega la UPZ, respondida después en el chat, a los indicadores del reporte."""
     db = obtener_db()
@@ -269,6 +353,22 @@ def desuscribir_lider(canal: str, destino: str):
 
 def lideres_suscritos() -> list[dict]:
     return [d.to_dict() for d in obtener_db().collection(COL_SUSCRIPTORES).limit(200).stream()]
+
+
+# --------------------------------------------------------------------------- #
+# Retroalimentación de las personas ("¿te sirvió?", "era legítimo")
+# --------------------------------------------------------------------------- #
+
+def guardar_retroalimentacion(certificado: str, origen: str, util: bool | None, era_legitimo: bool | None):
+    """Una opinión por persona y certificado (la última reemplaza a la anterior)."""
+    doc = hashlib.sha256(f"{certificado}:{origen}".encode()).hexdigest()[:40]
+    obtener_db().collection(COL_RETROALIMENTACION).document(doc).set({
+        "certificado": certificado, "util": util, "era_legitimo": era_legitimo, "fecha": ahora_iso(),
+    })
+
+
+def retroalimentaciones(limite: int = 2000) -> list[dict]:
+    return [d.to_dict() for d in obtener_db().collection(COL_RETROALIMENTACION).limit(limite).stream()]
 
 
 # --------------------------------------------------------------------------- #

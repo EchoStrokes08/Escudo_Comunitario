@@ -8,6 +8,9 @@ con botones. Comandos:
 
   /start      saludo y cómo usarlo
   /verificar  <código>  comprueba un certificado
+  /estado     [código]  línea de tiempo del caso (el último reporte si no se da código)
+  /escuchar   el último veredicto en audio
+  /seguimiento  recibir aquí los avances del caso
   /alertas    el chat (de un líder comunitario) recibe las alertas tempranas por UPZ
   /cancelar   deja de recibir alertas
 
@@ -22,7 +25,8 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from app.core.config import settings
 from app.services import firebase_db
 from app.services.anonimizar import seudonimo
-from app.services.mensajeria import accion_telegram, descargar_telegram, enviar_telegram
+from app.services.mensajeria import accion_telegram, descargar_telegram, enviar_audio_telegram, enviar_telegram
+from app.services.voz import audio_de_caso
 
 from app.api.whatsapp import conversar
 
@@ -92,6 +96,8 @@ async def recibir_telegram(request: Request, x_telegram_bot_api_secret_token: st
             texto = "hola"
         elif texto.lower().startswith("/verificar"):
             texto = "verificar " + texto[len("/verificar"):]
+        elif texto.startswith("/"):
+            texto = texto[1:].split("@")[0] if " " not in texto else texto[1:]  # /estado, /escuchar, /seguimiento
         elif re.match(r"^[1-5]\.\s", texto):
             texto = texto[0]
 
@@ -101,13 +107,18 @@ async def recibir_telegram(request: Request, x_telegram_bot_api_secret_token: st
         turno = await conversar(
             usuario=seudonimo(f"telegram:{chat_id}"), texto=texto, crudos=crudos,
             lat=ubicacion.get("latitude"), lng=ubicacion.get("longitude"),
-            canal="telegram", sellar_en_linea=True,
+            canal="telegram", sellar_en_linea=True, destino=("telegram", str(chat_id)),
         )
         mensajes = turno["mensajes"]
         for i, m in enumerate(mensajes):
             ultimo = i == len(mensajes) - 1
             await enviar_telegram(chat_id, m, opciones=turno.get("opciones") if ultimo else None,
                                   pedir_ubicacion=ultimo)
+        if turno.get("voz"):
+            await accion_telegram(chat_id, "upload_voice")
+            audio = await audio_de_caso(firebase_db.obtener_publico(turno["voz"]) or {})
+            if audio:
+                await enviar_audio_telegram(chat_id, audio)
     except Exception as error:
         # Telegram reintenta si no recibe 200: se responde siempre para no duplicar reportes
         log.exception("Error atendiendo Telegram: %s", error)

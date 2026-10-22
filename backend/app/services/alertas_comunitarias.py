@@ -16,7 +16,7 @@ import re
 
 from app.core.config import settings
 from app.services import firebase_db
-from app.services.mensajeria import enviar_telegram, enviar_whatsapp_meta
+from app.services.mensajeria import enviar_telegram, enviar_twilio, enviar_whatsapp_meta
 from app.services.orientacion import nombre_tipo
 
 log = logging.getLogger("escudo.alertas")
@@ -27,21 +27,7 @@ def _clave(upz: str, tipo: str) -> str:
 
 
 def _avisar_twilio(texto: str) -> int:
-    if not (settings.LIDERES_WHATSAPP and settings.TWILIO_WHATSAPP_FROM
-            and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN):
-        return 0
-    from twilio.rest import Client
-
-    cliente = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-    enviados = 0
-    for destino in settings.LIDERES_WHATSAPP:
-        destino = destino if destino.startswith("whatsapp:") else f"whatsapp:{destino}"
-        try:
-            cliente.messages.create(from_=settings.TWILIO_WHATSAPP_FROM, to=destino, body=texto)
-            enviados += 1
-        except Exception as error:
-            log.warning("No se pudo avisar a un líder por Twilio: %s", error)
-    return enviados
+    return sum(enviar_twilio(destino, texto) for destino in settings.LIDERES_WHATSAPP)
 
 
 async def avisar_lideres(texto: str) -> int:

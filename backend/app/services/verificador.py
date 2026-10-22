@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import settings
+from app.core.red import SSL
 
 # --------------------------------------------------------------------------- #
 # Datos de referencia
@@ -318,7 +319,8 @@ async def verificar_mensaje(texto: str, indicadores_extra: dict | None = None,
     segundos = timeout_red or settings.VERIFICACION_TIMEOUT
     timeout = httpx.Timeout(segundos, connect=min(3.0, segundos))
 
-    async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": "EscudoComunitario/2.0"}) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=SSL,
+                                 headers={"User-Agent": "EscudoComunitario/2.0"}) as client:
         # 1. Acortadores → destino real (se agrega a los dominios a revisar)
         acortados = [u for u in urls if host_de(u) in ACORTADORES]
         if acortados:

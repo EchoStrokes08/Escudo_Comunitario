@@ -18,6 +18,15 @@ Cada reporte produce un "bloque" con campos canónicos (sin datos personales):
     JSON canónico del bloque.
 
 El certificado de reporte ES el hash del bloque.
+
+Seguimiento del caso: cada cambio de estado (en revisión, remitido a la
+Policía/Fiscalía, cerrado) es OTRO bloque de la misma cadena, de tipo
+"seguimiento", que apunta al certificado del reporte:
+
+    {v, tipo, altura, prev, fecha, caso, estado, actor, hash_nota}
+
+Así la trazabilidad cubre todo el ciclo del caso: nadie puede cambiar a
+escondidas cuándo se remitió un caso ni qué se le respondió a la víctima.
 """
 import base64
 import hashlib
@@ -26,6 +35,7 @@ import json
 import httpx
 
 from app.core.config import settings
+from app.core.red import SSL
 
 VERSION = 1
 GENESIS = "0" * 64
@@ -36,6 +46,16 @@ _OTS_VERSION = b"\x01"
 _OTS_OP_SHA256 = b"\x08"
 
 CAMPOS_BLOQUE = ("v", "altura", "prev", "fecha", "canal", "reportante", "hash_mensaje", "adjuntos", "analisis")
+CAMPOS_SEGUIMIENTO = ("v", "tipo", "altura", "prev", "fecha", "caso", "estado", "actor", "hash_nota")
+
+# Ciclo de vida de un caso. "registrado" es el estado implícito del bloque del reporte.
+ESTADOS_CASO: dict[str, str] = {
+    "registrado": "Reporte registrado",
+    "en_revision": "En revisión",
+    "remitido": "Remitido a Policía / Fiscalía",
+    "en_investigacion": "En investigación",
+    "cerrado": "Caso cerrado",
+}
 
 
 def normalizar_mensaje(texto: str) -> str:
@@ -68,8 +88,29 @@ def construir_bloque(*, altura: int, prev: str, fecha: str, canal: str, reportan
     }
 
 
+def construir_seguimiento(*, altura: int, prev: str, fecha: str, caso: str, estado: str,
+                          actor: str, nota: str) -> dict:
+    return {
+        "v": VERSION,
+        "tipo": "seguimiento",
+        "altura": altura,
+        "prev": prev,
+        "fecha": fecha,
+        "caso": caso,
+        "estado": estado,
+        "actor": actor,
+        # La nota se publica junto al bloque; su huella la protege de cambios posteriores
+        "hash_nota": hash_mensaje(nota),
+    }
+
+
+def es_seguimiento(bloque: dict) -> bool:
+    return bloque.get("tipo") == "seguimiento"
+
+
 def canonico(bloque: dict) -> bytes:
-    datos = {k: bloque[k] for k in CAMPOS_BLOQUE}
+    campos = CAMPOS_SEGUIMIENTO if es_seguimiento(bloque) else CAMPOS_BLOQUE
+    datos = {k: bloque[k] for k in campos}
     return json.dumps(datos, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
@@ -136,7 +177,7 @@ async def anclar_opentimestamps(hash_hex: str, timeout: float | None = None) -> 
     """
     digest = bytes.fromhex(hash_hex)
     errores = []
-    async with httpx.AsyncClient(timeout=timeout or settings.OTS_TIMEOUT) as client:
+    async with httpx.AsyncClient(verify=SSL, timeout=timeout or settings.OTS_TIMEOUT) as client:
         for calendario in settings.OTS_CALENDARIOS:
             try:
                 resp = await client.post(

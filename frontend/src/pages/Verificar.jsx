@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Icono from '../components/Icono.jsx'
+import LineaTiempo from '../components/LineaTiempo.jsx'
 import { auditarCadena, sellarCertificado, sha256Texto, urlPruebaOts, urlRegistroJson, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
+import { etiquetaEstado } from '../utils/estados.js'
 
 function Auditoria() {
     const [estado, setEstado] = useState(null)
@@ -114,7 +116,8 @@ export default function Verificar() {
     }
 
     const b = datos?.bloque
-    const nivel = b ? nivelRiesgo(b.analisis.nivel_riesgo) : null
+    const esSeguimiento = datos?.tipo === 'seguimiento'
+    const nivel = b && !esSeguimiento ? nivelRiesgo(b.analisis.nivel_riesgo) : null
 
     return (
         <div className="pagina-verificar">
@@ -144,7 +147,9 @@ export default function Verificar() {
                     <div className="verificacion-sello">
                         <span className="sello-icono"><Icono nombre={datos.integro ? 'check' : 'alerta'} tamano={34} grosor={2.4} /></span>
                         <div>
-                            <h2>{datos.integro ? 'Certificado íntegro' : 'Certificado alterado'}</h2>
+                            <h2>{datos.integro
+                                ? (esSeguimiento ? 'Seguimiento íntegro' : 'Certificado íntegro')
+                                : (esSeguimiento ? 'Seguimiento alterado' : 'Certificado alterado')}</h2>
                             <p>{datos.integro
                                 ? 'El contenido registrado coincide exactamente con su huella SHA-256.'
                                 : 'El contenido guardado ya no coincide con su huella: alguien lo modificó después de registrarlo.'}</p>
@@ -152,6 +157,19 @@ export default function Verificar() {
                     </div>
 
                     <div className="veredicto-detalles">
+                        {esSeguimiento ? (
+                        <div className="bloque-detalle">
+                            <h3><Icono nombre="archivo" tamano={16} /> Bloque #{b.altura} · seguimiento</h3>
+                            <dl className="datos-bloque">
+                                <dt>Estado</dt><dd>{etiquetaEstado(b.estado)}</dd>
+                                <dt>Quién actuó</dt><dd>{b.actor}</dd>
+                                <dt>Fecha</dt><dd>{new Date(b.fecha).toLocaleString('es-CO')}</dd>
+                                <dt>Caso</dt><dd><Link to={`/verificar/${datos.caso}`} className="mono">{datos.caso?.slice(0, 16)}…</Link></dd>
+                                <dt>Huella de la nota</dt><dd className="mono">{b.hash_nota.slice(0, 16)}…</dd>
+                            </dl>
+                            {datos.nota && <p className="reporte-mensaje">“{datos.nota}”</p>}
+                        </div>
+                        ) : (
                         <div className="bloque-detalle">
                             <h3><Icono nombre="archivo" tamano={16} /> Bloque #{b.altura}</h3>
                             <dl className="datos-bloque">
@@ -166,6 +184,7 @@ export default function Verificar() {
                             </dl>
                             {datos.reporte?.mensaje_anonimizado && <p className="reporte-mensaje">“{datos.reporte.mensaje_anonimizado}”</p>}
                         </div>
+                        )}
 
                         <div className="bloque-detalle">
                             <h3><Icono nombre="cadena" tamano={16} /> Encadenamiento</h3>
@@ -181,7 +200,7 @@ export default function Verificar() {
                                     <Icono nombre={datos.enlaces.siguiente ? 'check' : 'reloj'} tamano={14} />
                                     <span>Siguiente {datos.enlaces.siguiente
                                         ? <Link to={`/verificar/${datos.enlaces.siguiente}`} className="mono">{datos.enlaces.siguiente.slice(0, 12)}…</Link>
-                                        : '(aún no hay reportes posteriores)'}</span>
+                                        : '(aún no hay bloques posteriores)'}</span>
                                 </li>
                             </ul>
 
@@ -201,11 +220,22 @@ export default function Verificar() {
                             ) : <p className="texto-suave"><span className="spinner spinner-pequeno" /> Sellando en Bitcoin vía OpenTimestamps…</p>}
                         </div>
 
-                        <CompararMensaje hashMensaje={b.hash_mensaje} />
+                        {!esSeguimiento && <CompararMensaje hashMensaje={b.hash_mensaje} />}
                     </div>
 
+                    {datos.seguimiento?.length > 0 && (
+                        <div className="bloque-detalle seguimiento-caso">
+                            <h3><Icono nombre="reloj" tamano={16} /> Seguimiento del caso · {datos.estado_caso?.etiqueta}</h3>
+                            <p className="texto-suave">
+                                Cada avance (revisión, remisión a la Policía o la Fiscalía, cierre) es un bloque más de la cadena,
+                                sellado en Bitcoin: nadie puede cambiar después cuándo se actuó ni qué se le respondió a la víctima.
+                            </p>
+                            <LineaTiempo eventos={datos.seguimiento} />
+                        </div>
+                    )}
+
                     <div className="veredicto-acciones">
-                        <Link to={`/certificado/${datos.certificado}`} className="boton boton-primario"><Icono nombre="imprimir" /> Ver certificado imprimible</Link>
+                        <Link to={`/certificado/${datos.caso || datos.certificado}`} className="boton boton-primario"><Icono nombre="imprimir" /> Ver certificado imprimible</Link>
                     </div>
                 </section>
             )}

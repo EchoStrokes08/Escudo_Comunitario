@@ -7,10 +7,11 @@ rules_version = '2';
 // no está sujeto a estas reglas), donde se analizan, se encadenan y se sellan.
 //
 //   panel_publico         reportes anonimizados para el panel territorial
-//   registros             bloques de la cadena de certificados (sin datos personales)
+//   registros             bloques de la cadena: reportes y seguimiento del caso (sin datos personales)
 //   alertas_comunitarias  brotes de fraude por UPZ
 //
-// Privadas (solo backend): alertas_bosa, cadena, indicadores, conversaciones.
+// Privadas (solo backend): alertas_bosa, cadena, indicadores, conversaciones,
+// suscriptores_alertas, avisos_caso, retroalimentacion.
 service cloud.firestore {
   match /databases/{database}/documents {
 

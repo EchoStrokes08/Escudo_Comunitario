@@ -4,6 +4,7 @@ import Icono from '../components/Icono.jsx'
 import CodigoQR from '../components/CodigoQR.jsx'
 import { sellarCertificado, verificarCertificado } from '../services/api.js'
 import { nivelRiesgo, nombreTipo } from '../utils/riesgo.js'
+import LineaTiempo from '../components/LineaTiempo.jsx'
 
 /** Certificado de reporte imprimible (Ctrl+P → Guardar como PDF) con QR de verificación. */
 export default function Certificado() {
@@ -14,6 +15,8 @@ export default function Certificado() {
     useEffect(() => {
         verificarCertificado(codigo)
             .then(async d => {
+                // Un código de seguimiento lleva al certificado del reporte
+                if (d.tipo === 'seguimiento' && d.caso) d = await verificarCertificado(d.caso)
                 setDatos(d)
                 if (d.integro && !d.anclaje.descargable) {
                     await sellarCertificado(d.certificado).catch(() => null)
@@ -60,7 +63,9 @@ export default function Certificado() {
 
                 <dl className="doc-datos">
                     <dt>Fecha y hora del registro</dt><dd>{new Date(b.fecha).toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'medium' })}</dd>
-                    <dt>Canal</dt><dd>{b.canal === 'whatsapp' ? 'WhatsApp' : 'Formulario web'}</dd>
+                    <dt>Canal</dt><dd>{{ whatsapp: 'WhatsApp', telegram: 'Telegram', chat: 'Chat web' }[b.canal] || 'Formulario web'}</dd>
+                    {datos.estado_caso && <><dt>Estado del caso</dt><dd><strong>{datos.estado_caso.etiqueta}</strong>
+                        {datos.estado_caso.estado !== 'registrado' && <> · {datos.estado_caso.actor} · {new Date(datos.estado_caso.fecha).toLocaleDateString('es-CO')}</>}</dd></>}
                     <dt>Tipo de fraude</dt><dd>{nombreTipo(b.analisis.tipo_fraude)}</dd>
                     <dt>Nivel de riesgo</dt><dd>{b.analisis.nivel_riesgo}% ({nivel.etiqueta}) · confianza {b.analisis.confianza}%</dd>
                     {datos.reporte?.upz && <><dt>UPZ</dt><dd>{datos.reporte.upz}</dd></>}
@@ -69,6 +74,13 @@ export default function Certificado() {
                     <dt>Huella del mensaje</dt><dd className="mono">{b.hash_mensaje}</dd>
                     {b.adjuntos.length > 0 && <><dt>Huellas de archivos</dt><dd className="mono">{b.adjuntos.map(h => <span key={h}>{h}<br /></span>)}</dd></>}
                 </dl>
+
+                {datos.seguimiento?.length > 1 && (
+                    <div className="doc-seguimiento">
+                        <span>Seguimiento del caso (cada paso es un bloque encadenado)</span>
+                        <LineaTiempo eventos={datos.seguimiento} compacta />
+                    </div>
+                )}
 
                 <div className="doc-hash">
                     <div>

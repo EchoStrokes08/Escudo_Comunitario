@@ -9,7 +9,10 @@ MediaContentType0..N, Latitude, Longitude) y espera TwiML. El canal:
     baja alfabetización digital: pueden contar lo que pasó hablando).
   - Conversa en varios turnos: tras el veredicto pregunta la UPZ (número
     1-5) o la ubicación de WhatsApp 📍, y la agrega al reporte.
-  - Comandos: "hola"/"ayuda" (menú), "verificar <certificado>".
+  - Comandos: "hola"/"ayuda" (menú), "verificar <certificado>",
+    "estado [certificado]" (línea de tiempo del caso), "escuchar" (veredicto
+    en audio) y "avísame" (recibir aquí los avances del caso).
+  - Si la persona mandó una nota de voz, el veredicto también se le devuelve hablado.
 
 POST /api/whatsapp/simulador expone el mismo bot al chat de la web (/chat),
 para demos y para quien no tenga WhatsApp a mano.
@@ -27,13 +30,15 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 from app.core.config import settings
 from app.core.limite import limitar_por_ip
+from app.core.red import SSL
 from app.core.riesgo import nivel as nivel_riesgo
 from app.services import firebase_db
 from app.services.anonimizar import generalizar_ubicacion, seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, obtener_coordenadas
 from app.services.procesamiento import procesar_reporte, revisar_brote, sellar
-from app.services.registro import certificado_corto, verificar_bloque
+from app.services.registro import certificado_corto, es_seguimiento, verificar_bloque
+from app.services.seguimiento import linea_de_tiempo, texto_linea_de_tiempo
 
 router = APIRouter()
 log = logging.getLogger("escudo.whatsapp")
@@ -48,7 +53,10 @@ SALUDO = (
     "✍️ Reenviarme el mensaje\n"
     "📸 Mandarme una captura de pantalla\n"
     "🎤 Mandarme una *nota de voz* contándome qué pasó\n\n"
-    "Es gratis y anónimo. Para comprobar un certificado escribe: *verificar* y el código."
+    "Es gratis y anónimo. Después puedes escribir:\n"
+    "🔊 *escuchar* para oír el resultado\n"
+    "📋 *estado* para ver cómo va tu caso\n"
+    "🔒 *verificar* y el código para comprobar un certificado"
 )
 
 _SALUDOS = {"hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches",
@@ -82,10 +90,13 @@ def _es_saludo(texto: str) -> bool:
 _TIMEOUT_DESCARGA = httpx.Timeout(10.0, connect=5.0)
 
 
-def _twiml(*mensajes: str) -> Response:
+def _twiml(*mensajes: str, audio_url: str | None = None) -> Response:
     respuesta = MessagingResponse()
     for m in mensajes:
         respuesta.message(m[:1590])  # límite de WhatsApp vía Twilio
+    if audio_url:
+        # Twilio descarga el MP3 de nuestra API y lo entrega como audio
+        respuesta.message("🔊 Resultado en audio").media(audio_url)
     return Response(content=str(respuesta), media_type="application/xml")
 
 
@@ -113,7 +124,7 @@ async def _descargar_media(params: dict) -> list[dict]:
     auth = (settings.TWILIO_ACCOUNT_SID or "", settings.TWILIO_AUTH_TOKEN or "")
     limite = max(settings.MAX_PESO_MB, settings.MAX_PESO_AUDIO_MB) * 1024 * 1024
     crudos = []
-    async with httpx.AsyncClient(timeout=_TIMEOUT_DESCARGA, follow_redirects=True) as client:
+    async with httpx.AsyncClient(verify=SSL, timeout=_TIMEOUT_DESCARGA, follow_redirects=True) as client:
         for i in range(min(total, settings.MAX_ARCHIVOS)):
             url = params.get(f"MediaUrl{i}")
             if not url:
@@ -188,6 +199,31 @@ def _responder_verificacion(texto: str) -> list[str]:
             f"{settings.APP_URL}/verificar/{bloque['hash']}"]
 
 
+def _responder_estado(texto: str, ultimo: str | None) -> list[str]:
+    hallado = re.search(r"[0-9a-f]{16,64}", texto.lower())
+    codigo = hallado.group(0) if hallado else ultimo
+    if not codigo:
+        return ["Escribe *estado* seguido del código de tu certificado (mínimo 16 caracteres)."]
+    try:
+        bloque = firebase_db.buscar_bloque(codigo)
+        if bloque and es_seguimiento(bloque):
+            bloque = firebase_db.obtener_bloque(bloque["caso"])
+        if not bloque:
+            return ["❌ No encontramos ese certificado en el registro."]
+        return [texto_linea_de_tiempo(bloque["hash"], linea_de_tiempo(bloque))]
+    except Exception as error:
+        log.warning("No se pudo consultar el estado del caso: %s", error)
+        return ["No pudimos consultar el registro en este momento. Intenta más tarde."]
+
+
+def _plano(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto.lower()).encode("ascii", "ignore").decode().strip("!¡.?¿/ ")
+
+
+_PIDE_AVISOS = {"avisame", "avisenme", "avisar", "seguimiento"}
+_PIDE_AUDIO = {"escuchar", "audio", "oir", "escuchar resultado"}
+
+
 async def _ubicar(usuario: str, certificado: str, upz: str, lat: float, lng: float):
     """
     Completa la UPZ del reporte pendiente y revisa el brote en esa UPZ: en los chats el
@@ -208,10 +244,13 @@ async def _ubicar(usuario: str, certificado: str, upz: str, lat: float, lng: flo
 
 
 async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float | None, lng: float | None,
-                    canal: str, sellar_en_linea: bool = False) -> dict:
+                    canal: str, sellar_en_linea: bool = False, destino: tuple[str, str] | None = None) -> dict:
     """
-    Un turno de la conversación, compartido por el webhook de Twilio y el simulador web.
-    Retorna {"mensajes": [...], "opciones": [...], "certificado": str | None}.
+    Un turno de la conversación, compartido por todos los canales.
+    destino: (canal, id) para avisar los avances del caso si la persona escribe "avísame"
+    (None en el chat web, que consulta el estado en la página).
+    Retorna {"mensajes": [...], "opciones": [...], "certificado": str | None,
+             "voz": certificado cuyo veredicto conviene enviar también en audio | None}.
     """
     texto = (texto or "").strip()
     conversacion = {}
@@ -220,6 +259,7 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
     except Exception as error:
         log.warning("Sin estado de conversación: %s", error)
     pendiente = conversacion.get("reporte_pendiente_upz")
+    ultimo = conversacion.get("ultimo_certificado") or pendiente
 
     # 1. Ubicación compartida (📍) o número de UPZ para completar el último reporte
     if pendiente and lat is not None and lng is not None:
@@ -238,8 +278,29 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
         return {"mensajes": [f"✅ Listo, reporte ubicado en la UPZ *{upz}*. Gracias por proteger a tu comunidad. 🛡️"]}
 
     # 2. Comandos
-    if texto.lower().startswith("verificar"):
+    comando = _plano(texto)
+    if comando.startswith("verificar"):
         return {"mensajes": _responder_verificacion(texto)}
+    # Solo "estado" o "estado <código>": "Estado de su cuenta: bloqueada…" es un reporte, no un comando
+    if re.fullmatch(r"estado(\s+(de\s+)?(mi\s+)?caso)?\s*[0-9a-f]*", comando):
+        return {"mensajes": _responder_estado(texto, ultimo)}
+    if comando in _PIDE_AUDIO and not crudos:
+        if not ultimo:
+            return {"mensajes": ["Aún no tienes un reporte. Envíame el mensaje sospechoso y te digo si es fraude."]}
+        return {"mensajes": ["🔊 Aquí tienes el resultado en audio:"], "voz": ultimo}
+    if comando in _PIDE_AVISOS and not crudos:
+        if not ultimo:
+            return {"mensajes": ["Primero envíame el mensaje sospechoso; después podrás pedir los avances de tu caso."]}
+        if not destino:
+            return {"mensajes": [f"Consulta los avances de tu caso aquí:\n{settings.APP_URL}/verificar/{ultimo}"]}
+        try:
+            firebase_db.suscribir_avisos_caso(ultimo, *destino)
+        except Exception as error:
+            log.warning("No se pudo guardar el aviso del caso: %s", error)
+            return {"mensajes": ["No pudimos activar los avisos en este momento. Intenta más tarde."]}
+        return {"mensajes": [f"🔔 Listo. Te escribiré aquí cada vez que tu caso {certificado_corto(ultimo)}… avance "
+                             f"(revisión, remisión a la Policía o Fiscalía, cierre). Solo para eso guardamos este "
+                             f"contacto, y lo borramos al cerrar el caso."]}
 
     if not crudos and (texto.lower().strip("!¡.?¿ ") in _SALUDOS or _es_saludo(texto)):
         return {"mensajes": [SALUDO]}
@@ -263,14 +324,20 @@ async def conversar(*, usuario: str, texto: str, crudos: list[dict], lat: float 
         await sellar(resultado["certificado"], timeout=2.5)
 
     try:
-        firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": resultado["certificado"]})
+        firebase_db.guardar_conversacion(usuario, {"reporte_pendiente_upz": resultado["certificado"],
+                                                   "ultimo_certificado": resultado["certificado"]})
     except Exception as error:
         log.warning("No se pudo guardar la conversación: %s", error)
 
     pregunta = ("📍 *Ayúdanos a proteger a tus vecinos:* ¿en qué UPZ de Bosa estás? "
                 "Responde con el número o comparte tu ubicación:\n" + MENU_UPZ)
+    if resultado["nivel"] != "bajo":
+        pregunta += ("\n\n📋 Escribe *avísame* para recibir aquí los avances de tu caso o *estado* para consultarlo."
+                     if destino else "\n\n📋 Escribe *estado* para ver cómo avanza tu caso.")
+    # Quien habló probablemente prefiere escuchar: el veredicto también va en audio
+    hablo = any(a["mime"].startswith("audio/") for a in adjuntos)
     return {"mensajes": [_formatear_veredicto(resultado), pregunta], "opciones": UPZ_MENU,
-            "certificado": resultado["certificado"]}
+            "certificado": resultado["certificado"], "voz": resultado["certificado"] if hablo else None}
 
 
 @router.post("/webhook")
@@ -283,9 +350,10 @@ async def recibir_whatsapp(request: Request):
     turno = await conversar(
         usuario=seudonimo(params.get("From", "")), texto=params.get("Body") or "", crudos=crudos,
         lat=float(lat_txt) if lat_txt else None, lng=float(lng_txt) if lng_txt else None,
-        canal="whatsapp", sellar_en_linea=True,
+        canal="whatsapp", sellar_en_linea=True, destino=("whatsapp", params.get("From", "")),
     )
-    return _twiml(*turno["mensajes"])
+    audio = f"{settings.APP_URL}/api/voz/{turno['voz']}.mp3" if turno.get("voz") and settings.VOZ_RESPUESTAS else None
+    return _twiml(*turno["mensajes"], audio_url=audio)
 
 
 # --------------------------------------------------------------------------- #
@@ -310,8 +378,11 @@ class MensajeChat(BaseModel):
 async def simulador(mensaje: MensajeChat, request: Request):
     ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
     limitar_por_ip(ip or "desconocida")
-    return await conversar(
+    turno = await conversar(
         usuario=seudonimo(f"chat:{mensaje.sesion}"), texto=mensaje.texto,
         crudos=[a.model_dump() for a in mensaje.adjuntos], lat=mensaje.lat, lng=mensaje.lng,
         canal="chat",
     )
+    # El navegador reproduce el audio desde la API (ruta relativa: mismo dominio en Vercel)
+    turno["audio"] = f"/api/voz/{turno['voz']}.mp3" if turno.get("voz") and settings.VOZ_RESPUESTAS else None
+    return turno

@@ -8,6 +8,7 @@ sustituyen por dobles para que la prueba sea determinista.
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import limite
 from app.core.config import settings
 from app.services import firebase_db, procesamiento, registro, verificador
 
@@ -17,7 +18,8 @@ class BaseEnMemoria:
         self.registros, self.privado, self.publico = {}, {}, {}
         self.estado = {"altura": -1, "ultimo_hash": registro.GENESIS}
         self.indicadores, self.conversaciones, self.alertas, self.lideres = {}, {}, {}, {}
-        self.indicadores_upz = {}
+        self.indicadores_upz, self.indicadores_cert, self.indicadores_ultima = {}, {}, {}
+        self.avisos, self.opiniones = [], {}
 
     def registrar_reporte(self, *, canal, reportante, mensaje, adjuntos, analisis, privado, publico, fecha=None):
         bloque = registro.construir_bloque(
@@ -30,6 +32,53 @@ class BaseEnMemoria:
         self.publico[h] = {**publico, "certificado": h, "fecha": bloque["fecha"]}
         self.estado = {"altura": bloque["altura"], "ultimo_hash": h}
         return {**bloque, "hash": h}
+
+    def registrar_seguimiento(self, *, caso, estado, actor, nota):
+        bloque = registro.construir_seguimiento(
+            altura=self.estado["altura"] + 1, prev=self.estado["ultimo_hash"], fecha=firebase_db.ahora_iso(),
+            caso=caso, estado=estado, actor=actor, nota=nota)
+        h = registro.hash_bloque(bloque)
+        self.registros[h] = {**bloque, "hash": h, "nota": nota, "anclaje": {"estado": "en_proceso"}}
+        cambio = {"estado": estado, "estado_actor": actor, "estado_nota": nota}
+        self.privado[caso].update(cambio)
+        self.publico[caso].update(cambio)
+        self.estado = {"altura": bloque["altura"], "ultimo_hash": h}
+        return {**bloque, "hash": h, "nota": nota}
+
+    def seguimientos_de(self, caso):
+        return sorted((dict(b) for b in self.registros.values() if b.get("caso") == caso), key=lambda b: b["altura"])
+
+    def obtener_privado(self, h):
+        return self.privado.get(h)
+
+    def casos_completos(self, limite=500):
+        return [{"id": h, **c} for h, c in reversed(self.privado.items())]
+
+    def indicadores_reincidentes(self, minimo=2, limite=100):
+        return [{"id": f"{t}:{v}", "tipo": t, "valor": v, "veces": n,
+                 "upz": sorted(self.indicadores_upz.get((t, v), [])), "certificados": self.indicadores_cert.get((t, v), []), "ultima": self.indicadores_ultima.get((t, v))}
+                for (t, v), n in sorted(self.indicadores.items(), key=lambda x: -x[1]) if n >= minimo][:limite]
+
+    def obtener_indicador(self, id_indicador):
+        return next((i for i in self.indicadores_reincidentes(1) if i["id"] == id_indicador), None)
+
+    def casos_por_certificados(self, certificados):
+        return [{"id": h, **self.privado[h]} for h in certificados if h in self.privado]
+
+    def guardar_retroalimentacion(self, certificado, origen, util, era_legitimo):
+        self.opiniones[(certificado, origen)] = {"certificado": certificado, "util": util, "era_legitimo": era_legitimo}
+
+    def retroalimentaciones(self, limite=2000):
+        return list(self.opiniones.values())
+
+    def suscribir_avisos_caso(self, caso, canal, destino):
+        self.avisos.append({"caso": caso, "canal": canal, "destino": destino})
+
+    def avisos_caso(self, caso):
+        return [a for a in self.avisos if a["caso"] == caso]
+
+    def borrar_avisos_caso(self, caso):
+        self.avisos = [a for a in self.avisos if a["caso"] != caso]
 
     def guardar_anclaje(self, h, anclaje):
         self.registros[h]["anclaje"] = anclaje
@@ -63,6 +112,8 @@ class BaseEnMemoria:
         for c in claves:
             self.indicadores[c] = self.indicadores.get(c, 0) + 1
             self.indicadores_upz.setdefault(c, set()).update([upz] if upz else [])
+            self.indicadores_cert.setdefault(c, []).append(certificado)
+            self.indicadores_ultima[c] = firebase_db.ahora_iso()
 
     def ubicar_indicadores(self, certificado, upz):
         for i in self.privado[certificado].get("indicadores", []):
@@ -100,6 +151,7 @@ def cliente(monkeypatch):
         if not nombre.startswith("_") and hasattr(firebase_db, nombre):
             monkeypatch.setattr(firebase_db, nombre, getattr(base, nombre))
     monkeypatch.setattr(settings, "LLM_PROVIDER", "heuristico")
+    limite._solicitudes.clear()  # cada prueba empieza sin solicitudes previas de "testclient"
     monkeypatch.setattr(settings, "TWILIO_AUTH_TOKEN", None)
 
     async def ots_falso(h, timeout=None):

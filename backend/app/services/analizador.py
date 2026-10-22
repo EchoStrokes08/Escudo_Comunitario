@@ -28,6 +28,7 @@ import time
 import httpx
 
 from app.core.config import settings
+from app.core.red import SSL
 from app.core.riesgo import UMBRAL_ALTO, UMBRAL_MEDIO
 from app.services.archivos import a_parte_gemini, a_parte_openai, es_audio
 from app.services.orientacion import TIPOS_FRAUDE, normalizar_tipo
@@ -231,7 +232,7 @@ async def _llamar_gemini(modelo: str, texto: str, adjuntos: list[dict], clave: s
         "contents": [{"role": "user", "parts": partes}],
         "generationConfig": generacion,
     }
-    async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+    async with httpx.AsyncClient(verify=SSL, timeout=settings.LLM_TIMEOUT) as client:
         resp = await client.post(url, json=payload, headers={"x-goog-api-key": clave})
     # Modelo retirado (404), saturado (503/500) o sin cuota propia (429): se prueba el siguiente modelo.
     # 401/403 son problemas de la clave: se pasa a la siguiente clave.
@@ -291,7 +292,7 @@ async def _analizar_con_groq(texto: str, adjuntos: list[dict], clave: str) -> tu
     audios = [a for a in adjuntos if es_audio(a["mime"])]
     textos = [f"[{a['nombre']}]\n{a['texto_extraido']}" for a in adjuntos if a.get("texto_extraido")]
 
-    async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+    async with httpx.AsyncClient(verify=SSL, timeout=settings.LLM_TIMEOUT) as client:
         transcripciones = []
         if audios:
             transcripciones = await asyncio.gather(*[_transcribir_groq(client, a, clave) for a in audios])
@@ -361,7 +362,7 @@ async def _analizar_con_openai(texto: str, adjuntos: list[dict], clave: str) -> 
             {"role": "user", "content": partes},
         ],
     }
-    async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
+    async with httpx.AsyncClient(verify=SSL, timeout=settings.LLM_TIMEOUT) as client:
         resp = await client.post(
             "https://api.openai.com/v1/chat/completions",
             json=payload,

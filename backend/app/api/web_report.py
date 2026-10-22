@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.limite import limitar_por_ip
+from app.services import firebase_db
 from app.services.anonimizar import seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, validar_o_asignar
@@ -88,3 +89,22 @@ async def reportar_mensaje(reporte: ReporteWeb, request: Request):
         "lng": lng,
         "ubicacion_dispositivo_en_bosa": gps_en_bosa,
     }
+
+
+class Retroalimentacion(BaseModel):
+    util: bool | None = Field(None, description="¿Le sirvió el análisis?")
+    era_legitimo: bool | None = Field(None, description="La persona afirma que el mensaje era legítimo (falso positivo)")
+
+
+@router.post("/retroalimentacion/{codigo}")
+def retroalimentar(codigo: str, opinion: Retroalimentacion, request: Request):
+    """'¿Te sirvió?' y 'Era legítimo': mide la utilidad real y los falsos positivos en uso."""
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    limitar_por_ip(f"opinion:{ip}")
+    codigo = "".join(c for c in codigo.lower() if c in "0123456789abcdef")
+    if len(codigo) != 64 or not firebase_db.obtener_bloque(codigo):
+        raise HTTPException(status_code=404, detail="Certificado no encontrado.")
+    if opinion.util is None and opinion.era_legitimo is None:
+        raise HTTPException(status_code=400, detail="Envía 'util' o 'era_legitimo'.")
+    firebase_db.guardar_retroalimentacion(codigo, seudonimo(f"ip:{ip}"), opinion.util, opinion.era_legitimo)
+    return {"ok": True}

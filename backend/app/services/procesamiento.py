@@ -99,15 +99,17 @@ async def revisar_brote(upz: str | None, tipo: str, nivel: str) -> dict | None:
         return alerta
 
 
-async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
-                           upz: str | None, lat: float | None, lng: float | None,
-                           rapido: bool = False) -> dict:
+async def analizar(mensaje: str, adjuntos: list[dict], *, rapido: bool = False, historial=_historial) -> dict:
+    """
+    Pasos 1-4 del flujo, sin escribir nada: IA + fuentes abiertas + riesgo, confianza y plan.
+    Lo usan procesar_reporte y el script de evaluación (scripts/evaluar.py).
+    """
     t = _RAPIDO if rapido else {"llm": None, "red": None}
 
     # 1-2. IA y verificación del texto escrito, en paralelo
     analisis, verif_texto = await asyncio.gather(
         evaluar_fraude(mensaje, adjuntos, presupuesto=t["llm"]),
-        verificar_mensaje(mensaje, historial=_historial, timeout_red=t["red"]),
+        verificar_mensaje(mensaje, historial=historial, timeout_red=t["red"]),
     )
 
     # 3. Lo que la IA leyó en capturas/PDF/audio también se verifica, solo si trae indicadores nuevos
@@ -115,7 +117,7 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
     extra = analisis.get("indicadores") or {}
     nuevos = set(claves_indicadores(leido, extra)) - set(verif_texto["indicadores"])
     if nuevos:
-        verif_adjuntos = await verificar_mensaje(leido, indicadores_extra=extra, historial=_historial,
+        verif_adjuntos = await verificar_mensaje(leido, indicadores_extra=extra, historial=historial,
                                                  timeout_red=t["red"])
         verificacion = _fusionar_verificaciones(verif_texto, verif_adjuntos)
     else:
@@ -128,7 +130,16 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         tipo = "legitimo"
     elif tipo == "legitimo" and puntaje["nivel"] != "bajo":
         tipo = "otro"  # las fuentes abiertas subieron el riesgo aunque la IA no vio fraude
-    plan = plan_accion(tipo, puntaje["nivel_riesgo"])
+    return {"analisis": analisis, "verificacion": verificacion, "puntaje": puntaje, "tipo": tipo,
+            "plan": plan_accion(tipo, puntaje["nivel_riesgo"]), "leido": leido}
+
+
+async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
+                           upz: str | None, lat: float | None, lng: float | None,
+                           rapido: bool = False) -> dict:
+    r = await analizar(mensaje, adjuntos, rapido=rapido)
+    analisis, verificacion, puntaje = r["analisis"], r["verificacion"], r["puntaje"]
+    tipo, plan, leido = r["tipo"], r["plan"], r["leido"]
     flags = analisis["flags"]
     resumen = analisis["resumen"]
 

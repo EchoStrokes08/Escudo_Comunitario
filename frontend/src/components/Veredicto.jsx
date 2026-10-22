@@ -4,7 +4,7 @@ import Icono from './Icono.jsx'
 import CodigoQR from './CodigoQR.jsx'
 import { nivelRiesgo } from '../utils/riesgo.js'
 import { useContador } from '../hooks/animacion.js'
-import { sellarCertificado } from '../services/api.js'
+import { enviarOpinion, sellarCertificado } from '../services/api.js'
 
 const TITULARES = {
     alto: 'Muy probablemente es un fraude',
@@ -83,6 +83,46 @@ function BotonEscuchar({ texto }) {
     )
 }
 
+/** "¿Te sirvió?" y "Era legítimo": mide la utilidad real y los falsos positivos en uso. */
+function Opinion({ certificado, nivel }) {
+    const [enviada, setEnviada] = useState(null)
+    const [error, setError] = useState(false)
+
+    const opinar = async (opinion, clave) => {
+        setError(false)
+        try {
+            await enviarOpinion(certificado, opinion)
+            setEnviada(clave)
+        } catch {
+            setError(true)
+        }
+    }
+
+    if (enviada) {
+        return (
+            <p className="opinion opinion-gracias">
+                <Icono nombre="check" tamano={15} />
+                {enviada === 'legitimo'
+                    ? 'Gracias. Revisaremos este caso para que el análisis se equivoque menos.'
+                    : 'Gracias por tu opinión: nos ayuda a mejorar el Escudo.'}
+            </p>
+        )
+    }
+    return (
+        <div className="opinion">
+            <span>¿Te sirvió este análisis?</span>
+            <button type="button" className="boton-texto" onClick={() => opinar({ util: true }, 'si')}>👍 Sí</button>
+            <button type="button" className="boton-texto" onClick={() => opinar({ util: false }, 'no')}>👎 No</button>
+            {nivel !== 'bajo' && (
+                <button type="button" className="boton-texto" onClick={() => opinar({ util: false, era_legitimo: true }, 'legitimo')}>
+                    Era un mensaje legítimo
+                </button>
+            )}
+            {error && <small className="texto-alto">No se pudo enviar. Intenta de nuevo.</small>}
+        </div>
+    )
+}
+
 export default function Veredicto({ resultado: r, onNuevo }) {
     const [copiado, setCopiado] = useState(false)
     const [sello, setSello] = useState(r.anclaje?.estado || 'en_proceso')
@@ -140,6 +180,7 @@ export default function Veredicto({ resultado: r, onNuevo }) {
                         </div>
                     )}
                     <BotonEscuchar texto={textoVoz} />
+                    <Opinion certificado={r.certificado} nivel={nivel.id} />
                 </div>
             </div>
 
@@ -246,6 +287,9 @@ export default function Veredicto({ resultado: r, onNuevo }) {
                                     : 'Sello en Bitcoin pendiente: se reintentará'}
                         </li>
                         <li><Icono nombre="pin" tamano={14} /> UPZ {r.upz} · {new Date(r.fecha).toLocaleString('es-CO')}</li>
+                        {nivel.id !== 'bajo' && (
+                            <li><Icono nombre="reloj" tamano={14} /> Guarda este código: con él consultas en <Link to={`/verificar/${r.certificado}`}>Verificar</Link> cómo avanza tu caso (revisión, remisión a la Policía o Fiscalía, cierre).</li>
+                        )}
                     </ul>
                     <div className="veredicto-acciones">
                         <Link to={`/certificado/${r.certificado}`} className="boton boton-primario"><Icono nombre="imprimir" /> Ver e imprimir certificado</Link>

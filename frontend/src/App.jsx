@@ -10,6 +10,7 @@ const Verificar = lazy(() => import('./pages/Verificar.jsx'))
 const Certificado = lazy(() => import('./pages/Certificado.jsx'))
 const Autoridades = lazy(() => import('./pages/Autoridades.jsx'))
 const Chat = lazy(() => import('./pages/Chat.jsx'))
+const Cartel = lazy(() => import('./pages/Cartel.jsx'))
 
 function App() {
     const ubicacion = useLocation()
@@ -53,6 +54,7 @@ function App() {
                         <Route path="/certificado/:codigo" element={<Certificado />} />
                         <Route path="/autoridades" element={<Autoridades />} />
                         <Route path="/chat" element={<Chat />} />
+                        <Route path="/cartel" element={<Cartel />} />
                         <Route path="*" element={<Dashboard />} />
                     </Routes>
                 </Suspense>
@@ -61,7 +63,7 @@ function App() {
             <footer className="pie">
                 <span><Icono nombre="escudo" tamano={14} /> Escudo Comunitario · Localidad 07 Bosa, Bogotá D.C.</span>
                 <span>
-                    Certificados encadenados y sellados en Bitcoin · <NavLink to="/verificar">Verificar</NavLink> · <a href={URL_WHATSAPP} target="_blank" rel="noreferrer">WhatsApp</a> · <a href={URL_TELEGRAM} target="_blank" rel="noreferrer">Telegram</a> · <NavLink to="/autoridades">Autoridades</NavLink>
+                    Certificados encadenados y sellados en Bitcoin · <NavLink to="/verificar">Verificar</NavLink> · <a href={URL_WHATSAPP} target="_blank" rel="noreferrer">WhatsApp</a> · <a href={URL_TELEGRAM} target="_blank" rel="noreferrer">Telegram</a> · <NavLink to="/cartel">Cartel con QR</NavLink> · <NavLink to="/autoridades">Autoridades</NavLink>
                 </span>
             </footer>
         </div>

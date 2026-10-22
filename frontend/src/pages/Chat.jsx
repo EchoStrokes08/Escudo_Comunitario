@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Icono from '../components/Icono.jsx'
 import GrabadorVoz from '../components/GrabadorVoz.jsx'
-import { pedir, sellarCertificado } from '../services/api.js'
+import { API_URL, pedir, sellarCertificado } from '../services/api.js'
 import { TELEGRAM_BOT, URL_TELEGRAM, URL_WHATSAPP, WHATSAPP_VISIBLE } from '../utils/canales.js'
 
 const CLAVE_SESION = 'escudo-chat-sesion'
@@ -84,6 +84,8 @@ export default function Chat() {
                 if (i > 0) await new Promise(res => setTimeout(res, 700))
                 setMensajes(prev => [...prev, { de: 'bot', texto: m, hora: hora() }])
             }
+            // Quien mandó una nota de voz (o escribió "escuchar") recibe también el veredicto hablado
+            if (r.audio) setMensajes(prev => [...prev, { de: 'bot', audio: `${API_URL}${r.audio}`, hora: hora() }])
             setOpciones(r.opciones || [])
             // Sello en Bitcoin en segundo plano: la respuesta ya se mostró
             if (r.certificado) sellarCertificado(r.certificado).catch(() => {})
@@ -216,7 +218,7 @@ export default function Chat() {
                     <input ref={inputArchivo} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" hidden
                         onChange={e => { enviarArchivo(e.target.files[0]); e.target.value = '' }} />
                     <input className="chat-entrada" value={texto} onChange={e => setTexto(e.target.value)}
-                        placeholder="Pega aquí el mensaje sospechoso…" aria-label="Mensaje" disabled={escribiendo} />
+                        placeholder="Pega el mensaje sospechoso, o escribe: estado · escuchar" aria-label="Mensaje" disabled={escribiendo} />
                     {texto.trim()
                         ? <button type="submit" className="chat-boton-icono enviar" aria-label="Enviar" disabled={escribiendo}><Icono nombre="flecha" tamano={20} /></button>
                         : <GrabadorVoz compacto onListo={enviarVoz} deshabilitado={escribiendo} />}

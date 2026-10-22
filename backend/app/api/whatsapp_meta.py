@@ -19,7 +19,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from app.core.config import settings
 from app.services import firebase_db
 from app.services.anonimizar import seudonimo
-from app.services.mensajeria import descargar_meta, enviar_whatsapp_meta
+from app.services.mensajeria import descargar_meta, enviar_audio_meta, enviar_whatsapp_meta
+from app.services.voz import audio_de_caso
 
 from app.api.whatsapp import conversar
 
@@ -84,12 +85,16 @@ async def _atender(mensaje: dict):
 
     turno = await conversar(
         usuario=seudonimo(f"whatsapp:+{numero}" if numero.isdigit() else f"whatsapp:{numero}"), texto=texto, crudos=crudos, lat=lat, lng=lng,
-        canal="whatsapp", sellar_en_linea=True,
+        canal="whatsapp", sellar_en_linea=True, destino=("whatsapp_meta", numero),
     )
     mensajes = turno["mensajes"]
     for i, m in enumerate(mensajes):
         ultimo = i == len(mensajes) - 1
         await enviar_whatsapp_meta(numero, m, opciones=turno.get("opciones") if ultimo else None)
+    if turno.get("voz"):
+        audio = await audio_de_caso(firebase_db.obtener_publico(turno["voz"]) or {})
+        if audio:
+            await enviar_audio_meta(numero, audio)
 
 
 @router.post("/webhook")

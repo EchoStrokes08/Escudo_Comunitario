@@ -23,7 +23,6 @@ base = BaseEnMemoria()
 for nombre in dir(base):
     if not nombre.startswith("_") and hasattr(firebase_db, nombre):
         setattr(firebase_db, nombre, getattr(base, nombre))
-firebase_db.casos_completos = lambda limite=500: [{"id": h, **c} for h, c in reversed(base.privado.items())]
 
 if __name__ == "__main__":
     from app.main import app

@@ -20,6 +20,9 @@ from app.core.config import settings  # noqa: E402
 COMANDOS = [
     {"command": "start", "description": "Cómo usar el Escudo Comunitario"},
     {"command": "verificar", "description": "Comprobar un certificado: /verificar <código>"},
+    {"command": "estado", "description": "Ver cómo avanza tu caso: /estado [código]"},
+    {"command": "escuchar", "description": "Escuchar el resultado de tu último reporte"},
+    {"command": "seguimiento", "description": "Recibir aquí los avances de tu caso"},
     {"command": "alertas", "description": "Recibir alertas tempranas de fraude en Bosa (líderes)"},
     {"command": "cancelar", "description": "Dejar de recibir alertas"},
 ]

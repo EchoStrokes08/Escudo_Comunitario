@@ -161,6 +161,11 @@ class Settings:
     BROTE_MINIMO = int(os.getenv("BROTE_MINIMO", "3"))          # reportes del mismo tipo en la UPZ
     BROTE_VENTANA_HORAS = int(os.getenv("BROTE_VENTANA_HORAS", "48"))
 
+    # --- Respuestas en audio (veredicto hablado en los bots y en la web) ---
+    VOZ_RESPUESTAS = _parse_bool(os.getenv("VOZ_RESPUESTAS"), default=True)
+    VOZ_TLD = os.getenv("VOZ_TLD", "com.mx").strip()  # acento latinoamericano
+    VOZ_TIMEOUT = float(os.getenv("VOZ_TIMEOUT", "6"))
+
     # --- Vista de autoridades ---
     # Token compartido con Policía/Fiscalía/organizaciones para consultar casos completos
     AUTORIDADES_TOKEN = os.getenv("AUTORIDADES_TOKEN")
