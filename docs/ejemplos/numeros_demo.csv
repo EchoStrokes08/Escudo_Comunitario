@@ -1,0 +1,4 @@
+﻿numero,categoria,fuente,url,fecha,descripcion,demo
+3000000000,vishing,demo,/reportar,2026-10-20,"Llamada que dice ser del banco, pide no colgar y solicita el código que llegó por SMS. Dato ficticio solo para demostración.",si
+3000000001,extorsion,demo,/reportar,2026-10-21,"Llamada que amenaza con un supuesto proceso judicial y exige dinero. Dato ficticio solo para demostración.",si
+6010000000,telemercadeo,demo,/reportar,2026-10-19,"Llamada insistente de telemercadeo no deseado. Dato ficticio solo para demostración.",si

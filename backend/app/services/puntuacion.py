@@ -18,7 +18,8 @@ def _limitar(valor: float, minimo: int = 0, maximo: int = 100) -> int:
     return int(max(minimo, min(maximo, round(valor))))
 
 
-def calcular(analisis: dict, verificacion: dict, texto: str, adjuntos: list[dict]) -> dict:
+def calcular(analisis: dict, verificacion: dict, texto: str, adjuntos: list[dict],
+             numero: dict | None = None) -> dict:
     heur = analisis.get("heuristico") or {}
     usa_llm = analisis.get("motor") == "llm"
     r_llm = analisis["nivel_riesgo"]
@@ -38,6 +39,20 @@ def calcular(analisis: dict, verificacion: dict, texto: str, adjuntos: list[dict
         riesgo += bonus
         factores.append({"tipo": "sube", "texto": f"Fuentes abiertas confirmaron {len(hallazgos)} "
                                                   f"{'hallazgo' if len(hallazgos) == 1 else 'hallazgos'} (+{bonus})"})
+
+    # El número entrante se evalúa antes de la llamada: un número reportado sube el riesgo
+    # aunque el relato sea corto, y una línea oficial no lo baja si el contenido es claro.
+    if numero and numero.get("nivel_riesgo") is not None:
+        r_numero = int(numero["nivel_riesgo"])
+        if numero.get("reportado") or r_numero >= 40:
+            # Un número reportado (aunque sea por un vecino) o una señal fuerte del
+            # propio número (oculto, inválido) fija un piso de riesgo: no se diluye.
+            ajuste = r_numero if numero.get("reportado") else max(0, r_numero - 5)
+            riesgo = max(riesgo, min(100, ajuste))
+            factores.append({"tipo": "sube", "texto": f"El número consultado tiene riesgo "
+                                                      f"{numero.get('nivel', 'alto')} ({r_numero}/100)"})
+        elif riesgo >= 40:
+            factores.append({"tipo": "info", "texto": "El número no está reportado; el riesgo viene del relato"})
     riesgo = _limitar(riesgo)
 
     # ---------------- Confianza ----------------
@@ -68,6 +83,13 @@ def calcular(analisis: dict, verificacion: dict, texto: str, adjuntos: list[dict
     simulados = [h for h in hallazgos if h.get("simulada")]
     if simulados:
         confianza += 8
+
+    if numero and numero.get("coincidencias"):
+        confianza += 15
+        factores.append({"tipo": "sube", "texto": "El número coincide con el registro de números reportados"})
+    elif numero and numero.get("reportes_comunidad"):
+        confianza += 8
+        factores.append({"tipo": "sube", "texto": "Vecinos ya habían reportado este número"})
 
     poco_contenido = len((texto or "").strip()) < 40 and not adjuntos
     if poco_contenido:

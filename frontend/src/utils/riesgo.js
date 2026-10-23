@@ -38,6 +38,7 @@ export const TIPOS_FRAUDE = {
     phishing: 'Phishing',
     malware: 'Malware',
     sim_swapping: 'SIM swapping',
+    vishing: 'Vishing (estafa por llamada)',
     estafa_whatsapp: 'Estafa por WhatsApp',
     suplantacion_entidad: 'Suplantación de entidad',
     premio_falso: 'Premio o subsidio falso',

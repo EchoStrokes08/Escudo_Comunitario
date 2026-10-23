@@ -6,7 +6,8 @@ Ecosistema de prevención de fraude digital para la Localidad de Bosa (Hackathon
 
 | Requisito | Implementación |
 |---|---|
-| **Detección y orientación con IA** | `services/analizador.py` — agente multimodal (Gemini con respaldo automático de modelos y claves, OpenAI opcional): texto, capturas (OCR), PDF y **notas de voz**. Devuelve riesgo, **tipo de amenaza** (phishing, **malware**, SIM swapping, estafa por WhatsApp, extorsión…), entidad suplantada, texto leído, indicadores y las **causas principales** del veredicto, cada una citando la evidencia del mensaje ("el enlace nequi-pagos.top no es de Nequi"). Primero van las causas **confirmadas por fuentes externas** (URLhaus fija el tipo en malware y OpenPhish en phishing), y cada tipo trae una explicación de **cómo funciona ese engaño**. Defensa contra *prompt injection*. `services/puntuacion.py` calcula un **nivel de confianza explicable** (certeza del modelo + acuerdo con el análisis local + confirmaciones externas) y `services/orientacion.py` da un **plan de acción por tipo** (phishing, SIM swapping, estafa por WhatsApp, extorsión…) |
+| **Detección y orientación con IA** | `services/analizador.py` — agente multimodal (Gemini con respaldo automático de modelos y claves, OpenAI opcional): texto, capturas (OCR), PDF y **notas de voz**. Devuelve riesgo, **tipo de amenaza** (phishing, **malware**, SIM swapping, estafa por WhatsApp, extorsión, **vishing**…), entidad suplantada, texto leído, indicadores y las **causas principales** del veredicto, cada una citando la evidencia del mensaje ("el enlace nequi-pagos.top no es de Nequi"). Primero van las causas **confirmadas por fuentes externas** (URLhaus fija el tipo en malware y OpenPhish en phishing), y cada tipo trae una explicación de **cómo funciona ese engaño**. Defensa contra *prompt injection*. `services/puntuacion.py` calcula un **nivel de confianza explicable** (certeza del modelo + acuerdo con el análisis local + confirmaciones externas) y `services/orientacion.py` da un **plan de acción por tipo** (phishing, SIM swapping, estafa por WhatsApp, extorsión, vishing…) |
+| **Vishing y números reportados** | `services/numeros.py` + `/numero`: la persona escribe el número que la llamó y obtiene un **nivel de riesgo explicable**, los **reportes de la comunidad** y las **coincidencias con fuentes oficiales** (Policía, Fiscalía, GAULA, ICBF, Alcaldía de Bogotá, SIC), cada una con su enlace verificable. El formulario `/reportar?contexto=llamada` permite contar qué le dijeron y adjuntar el número; el análisis se marca como **vishing**. El registro `app/data/numeros.json` parte de **líneas oficiales verificables** y se alimenta de los reportes comunitarios y de `scripts/importar_numeros.py` (CSV/JSON, deduplicación, fuente y fecha). **No intercepta llamadas**: es reporte + consulta del número. Siempre advierte **spoofing** ("un número puede falsificarse") y nunca afirma que un número sea seguro. Ver [`docs/numeros.md`](docs/numeros.md) |
 | **Verificación en tiempo real** | `services/verificador.py` — en paralelo y con timeouts: **RDAP** (antigüedad real del dominio), **suplantación de marca** y typosquatting, expansión de **enlaces acortados**, **OpenPhish** (sitios de phishing activos, sin clave), **URLhaus** (malware) y **Google Safe Browsing** (con clave), enlaces a **direcciones IP**, **historial comunitario** ("esta cuenta ya fue reportada N veces") y lista de referencia (marcada como demo). Verifica también lo leído en capturas y audios |
 | **Registro trazable inmutable** | `services/registro.py` — cada reporte es un **bloque encadenado** (SHA-256 del JSON canónico + hash del anterior, en transacción) y se **sella en Bitcoin vía OpenTimestamps** en varios calendarios a la vez (`services/ots.py`, sin dependencias). Horas después la prueba se **completa sola** y se comprueba contra la **raíz de Merkle real del bloque de Bitcoin** (blockstream.info / mempool.space): el certificado pasa de "pendiente" a "confirmado en el bloque N". Cualquiera puede verificarlo **sin confiar en el servidor** con `scripts/verificar_certificado.py <código>`, con `ots verify` o en opentimestamps.org. Página pública `/verificar` (íntegro/alterado, eslabones, comparación de huella en el navegador, descarga `.json` + `.ots`), **auditoría de toda la cadena** y **certificado imprimible con QR** (`/certificado/:hash`) |
 | **Seguimiento del caso** | `services/seguimiento.py` — cada cambio de estado (**en revisión → remitido a Policía/Fiscalía → en investigación → cerrado**) es **otro bloque de la misma cadena** que apunta al certificado del reporte, con la huella de la nota pública, y se sella en Bitcoin: nadie puede reescribir cuándo se actuó ni qué se le respondió a la víctima. La víctima ve la **línea de tiempo** en `/verificar` y en el certificado, escribe `estado` en el bot y, si escribe `avísame`, **recibe cada avance por WhatsApp o Telegram** (único caso en que se guarda su contacto, con consentimiento, y se borra al cerrar el caso) |
@@ -76,6 +77,7 @@ backend/
 │   ├── main.py                       App FastAPI, CORS (CORS_ORIGINS), registro de rutas, docs en /api/docs
 │   ├── api/                          ── Rutas HTTP ──
 │   │   ├── web_report.py             POST /api/reporte-web: formulario web (texto, adjuntos y voz en Base64)
+│   │   ├── numeros.py                Consulta pública de números reportados (vishing) y fuentes del registro
 │   │   ├── whatsapp.py               Webhook de Twilio (firma validada) + /api/whatsapp/simulador (chat web)
 │   │   ├── whatsapp_meta.py          Webhook de WhatsApp Cloud API de Meta (verificación y mensajes)
 │   │   ├── telegram.py               Webhook del bot de Telegram (/start, /verificar, /alertas, /cancelar)
@@ -93,6 +95,7 @@ backend/
 │   │   ├── verificador.py            Fuentes abiertas: RDAP, OpenPhish, URLhaus, Safe Browsing, marcas…
 │   │   ├── puntuacion.py             Riesgo final y nivel de confianza explicables (factores legibles)
 │   │   ├── orientacion.py            Tipos de fraude y plan de acción por tipo (123, 122, CAI Virtual…)
+│   │   ├── numeros.py                Vishing: normalización, registro de líneas oficiales/reportadas y riesgo
 │   │   ├── registro.py               Cadena de hashes SHA-256 (reportes y seguimiento) + OpenTimestamps + .ots
 │   │   ├── ots.py                    OpenTimestamps sin dependencias: sellar, completar y verificar contra Bitcoin
 │   │   ├── seguimiento.py            Línea de tiempo del caso y avisos a la víctima que pidió "avísame"
@@ -104,9 +107,11 @@ backend/
 │   │   ├── geolocalizacion.py        Ubicación por UPZ; todo punto cae dentro del polígono de Bosa
 │   │   └── alertas_comunitarias.py   Detección de brotes por UPZ y aviso a líderes suscritos
 │   └── data/
-│       └── bosa_polygon.py           Polígono oficial de la Localidad 07 (fuente única de verdad)
+│       ├── bosa_polygon.py           Polígono oficial de la Localidad 07 (fuente única de verdad)
+│       └── numeros.json              Registro de líneas oficiales y números reportados (fuente + URL)
 ├── scripts/
 │   ├── servidor_demo.py              Backend local con base EN MEMORIA (ensayo de la demo)
+│   ├── importar_numeros.py           Importa CSV/JSON de números (deduplica, valida y conserva la fuente)
 │   ├── evaluar.py                    Métricas del detector (conjuntos de desarrollo y de prueba)
 │   ├── verificar_certificado.py      Verificación independiente de un certificado (registro + .ots + Bitcoin)
 │   ├── migrar_v2.py                  Pasa los reportes antiguos a la cadena v2 (idempotente)
@@ -116,6 +121,7 @@ backend/
 ├── tests/
 │   ├── test_nucleo.py                Cadena, anonimización, verificación local, confianza, adjuntos
 │   ├── test_flujo.py                 Flujo completo de la API con base en memoria y red simulada
+│   ├── test_numeros.py               Normalización, riesgo, fuentes y API de números (vishing)
 │   ├── test_canales.py               Telegram y WhatsApp de Meta con la API de cada plataforma simulada
 │   ├── test_seguimiento.py           Estados encadenados, avisos, agrupados, evidencia, opinión y voz
 │   ├── test_evaluacion.py            Conjuntos bien formados y separados; piso de calidad del respaldo local
@@ -137,7 +143,8 @@ frontend/src/
 ├── styles.css                Estilos globales (tema oscuro, acentos cyan)
 ├── pages/
 │   ├── Dashboard.jsx         /                     Panel: mapa, tendencia, tipos, entidades, alertas por UPZ
-│   ├── Reportar.jsx          /reportar             Formulario: texto, capturas, PDF, voz y ubicación
+│   ├── Reportar.jsx          /reportar             Formulario: texto, capturas, PDF, voz, llamada (vishing) y ubicación
+│   ├── ConsultarNumero.jsx   /numero               Consulta pública de números reportados y nivel de riesgo
 │   ├── Chat.jsx              /chat                 Chat web con el mismo bot de WhatsApp y Telegram
 │   ├── Verificar.jsx         /verificar[/:codigo]  Verificación pública, eslabones, huella en el navegador
 │   ├── Certificado.jsx       /certificado/:codigo  Certificado de reporte imprimible con QR y estado del caso
@@ -264,7 +271,11 @@ Documentación interactiva completa en `/api/docs`.
 | `GET` | `/` | Health check |
 | `GET` | `/api/estado` | Salud de cada componente (sin secretos); `?probar_ia=1` hace una llamada real al LLM |
 | **Reporte** | | |
-| `POST` | `/api/reporte-web` | `{ mensaje, adjuntos?[{nombre, mime, base64}], barrio?, lat?, lng? }` → veredicto IA + verificación + confianza + plan + certificado. Errores: `413` peso, `415` formato, `400` Base64 corrupto |
+| `POST` | `/api/reporte-web` | `{ mensaje, adjuntos?[{nombre, mime, base64}], barrio?, lat?, lng?, contexto?, numero_entrante? }` → veredicto IA + verificación + confianza + plan + certificado. `contexto: "llamada"` y `numero_entrante` activan el análisis de vishing. Errores: `413` peso, `415` formato, `400` Base64 corrupto |
+| **Números reportados (vishing)** | | |
+| `GET` | `/api/numeros/consultar?numero=...` | Clasifica un número (admite `+57`, espacios y guiones): riesgo, nivel, confianza, factores, reportes de vecinos, coincidencias con fuentes oficiales y recomendación |
+| `GET` | `/api/numeros/{numero}` | Igual que el anterior, con el número en la ruta |
+| `GET` | `/api/numeros/fuentes` | Metadatos del registro: fecha, número de líneas oficiales y reportadas, y fuentes con su enlace |
 | **Canales conversacionales** | | |
 | `POST` | `/api/whatsapp/simulador` | Chat web (`/chat`): misma conversación que el bot de WhatsApp |
 | `POST` | `/api/whatsapp/webhook` | Twilio (form-encoded, firma `X-Twilio-Signature` validada) → responde TwiML |

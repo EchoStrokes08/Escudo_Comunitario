@@ -292,3 +292,57 @@ def test_veredicto_de_whatsapp_cabe_y_conserva_el_certificado():
          "url_certificado": "https://escudocomunitario.vercel.app/certificado/" + "ab" * 32, "adjuntos": []}
     texto = _formatear_veredicto(r)
     assert len(texto) <= 1590 and texto.endswith(r["url_certificado"]) and "Por qué" in texto
+
+def test_reporte_de_llamada_vishing(cliente):
+    api, base = cliente
+    # Dos vecinos ya reportaron el número: el flujo debe cruzarlo con la comunidad.
+    base.indicadores[("telefono", "3001112233")] = 2
+    r = api.post("/api/reporte-web", json={
+        "mensaje": "Me llamaron del banco. Me dijeron que no colgara, que mi cuenta estaba bloqueada "
+                   "y que les dictara el código que llegó por SMS.",
+        "contexto": "llamada",
+        "numero_entrante": "+57 300 111 2233",
+        "upz": "Tintal Sur",
+    })
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["tipo_fraude"]["id"] == "vishing"
+    assert d["numero_analisis"]["numero"] == "3001112233"
+    assert d["numero_analisis"]["reportado"] is True
+    assert d["numero_analisis"]["reportes_comunidad"] == 2
+    assert d["nivel_riesgo"] >= 40
+
+    # El número completo queda en la colección privada; el panel público lo enmascara.
+    assert base.privado[d["certificado"]]["numero_entrante"] == "3001112233"
+    publico = base.publico[d["certificado"]]
+    assert "3001112233" not in str(publico)
+    assert publico["contexto"] == "llamada"
+    assert publico["numero_analisis"]["reportado"] is True
+    # El número entrante también alimenta el historial comunitario.
+    assert base.indicadores[("telefono", "3001112233")] == 3
+
+
+def test_llamada_con_numero_oculto_es_vishing(cliente):
+    api, _ = cliente
+    r = api.post("/api/reporte-web", json={
+        "mensaje": "Me llamaron y me pidieron el código que llegó por SMS; no me dejaron colgar.",
+        "contexto": "llamada",
+        "numero_entrante": "oculto",
+    })
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["numero_analisis"]["numero"] == "oculto"
+    assert d["numero_analisis"]["nivel"] == "medio"
+    assert d["tipo_fraude"]["id"] == "vishing"
+    assert d["nivel_riesgo"] >= 40
+
+
+def test_reporte_web_rechaza_numero_sin_digitos(cliente):
+    api, _ = cliente
+    r = api.post("/api/reporte-web", json={
+        "mensaje": "Me llamaron y me pidieron un código.",
+        "contexto": "llamada",
+        "numero_entrante": "sin-digitos",
+    })
+    assert r.status_code == 400
+    assert "número" in r.json()["detail"].lower()

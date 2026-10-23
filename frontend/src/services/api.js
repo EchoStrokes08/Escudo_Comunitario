@@ -19,6 +19,8 @@ export async function pedir(ruta, opciones = {}) {
 }
 
 export const verificarCertificado = (codigo) => pedir(`/api/verificar/${encodeURIComponent(codigo)}`)
+export const consultarNumero = (numero) => pedir(`/api/numeros/consultar?numero=${encodeURIComponent(numero)}`)
+export const fuentesNumeros = () => pedir('/api/numeros/fuentes')
 export const auditarCadena = () => pedir('/api/cadena/auditoria')
 /** Sella el bloque en Bitcoin (OpenTimestamps) sin hacer esperar el veredicto. */
 export const sellarCertificado = (hash) => pedir(`/api/cadena/sellar/${hash}`, { method: 'POST' })

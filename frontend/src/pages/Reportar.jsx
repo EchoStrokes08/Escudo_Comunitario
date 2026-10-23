@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { UPZ_BOSA, obtenerUpzMasCercana } from '../data/upz.js'
 import { dentroDeBosa } from '../data/bosaPolygon.js'
 import Icono from '../components/Icono.jsx'
@@ -50,7 +51,10 @@ function leerComoBase64(archivo) {
 }
 
 export default function Reportar() {
+    const [params] = useSearchParams()
     const [mensaje, setMensaje] = useState('')
+    const [contexto, setContexto] = useState(params.get('contexto') === 'llamada' ? 'llamada' : 'mensaje')
+    const [numero, setNumero] = useState(params.get('numero') || '')
     const [upz, setUpz] = useState('')
     const [adjuntos, setAdjuntos] = useState([])
     const [arrastrando, setArrastrando] = useState(false)
@@ -195,7 +199,9 @@ export default function Reportar() {
         setError(null)
 
         if (mensaje.trim().length < 10 && adjuntos.length === 0) {
-            setError('Pega el mensaje completo, adjunta una captura o graba una nota de voz.')
+            setError(contexto === 'llamada'
+                ? 'Cuéntanos qué te dijeron por teléfono (al menos 10 caracteres) o adjunta un audio.'
+                : 'Pega el mensaje completo, adjunta una captura o graba una nota de voz.')
             return
         }
 
@@ -218,6 +224,8 @@ export default function Reportar() {
                     barrio: upzEnvio,
                     lat: latEnvio,
                     lng: lngEnvio,
+                    contexto,
+                    numero_entrante: contexto === 'llamada' ? (numero.trim() || null) : null,
                     adjuntos: adjuntos.map(({ nombre, mime, base64 }) => ({ nombre, mime, base64 })),
                 }),
             })
@@ -240,6 +248,8 @@ export default function Reportar() {
 
     const nuevoReporte = () => {
         setMensaje('')
+        setContexto('mensaje')
+        setNumero('')
         setUpz('')
         setAdjuntos([])
         setResultado(null)
@@ -261,28 +271,77 @@ export default function Reportar() {
                     <p>
                         Pégalo, sube una captura o <strong>cuéntalo con tu voz</strong>. Nuestra IA lo analiza,
                         lo verifica en fuentes abiertas en tiempo real, te dice qué hacer y te entrega un
-                        certificado sellado que nadie puede alterar.
+                        certificado sellado que nadie puede alterar. Si fue una <strong>llamada</strong>,
+                        cambia el tipo de reporte y escribe el número que llamó.
                     </p>
                 </div>
             </section>
 
             <div className="rejilla-reporte">
                 <form className="formulario" onSubmit={enviar}>
+                    {/* Tipo de reporte: mensaje o llamada (vishing) */}
+                    <div className="selector-contexto" role="radiogroup" aria-label="¿Cómo te llegó el fraude?">
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={contexto === 'mensaje'}
+                            className={`opcion-contexto ${contexto === 'mensaje' ? 'activa' : ''}`}
+                            onClick={() => setContexto('mensaje')}
+                        >
+                            <Icono nombre="mensaje" tamano={18} />
+                            <span><strong>Mensaje</strong><small>SMS, WhatsApp o redes</small></span>
+                        </button>
+                        <button
+                            type="button"
+                            role="radio"
+                            aria-checked={contexto === 'llamada'}
+                            className={`opcion-contexto ${contexto === 'llamada' ? 'activa' : ''}`}
+                            onClick={() => setContexto('llamada')}
+                        >
+                            <Icono nombre="llamar" tamano={18} />
+                            <span><strong>Llamada</strong><small>Vishing o extorsión</small></span>
+                        </button>
+                    </div>
+
                     {/* Paso 1: mensaje */}
                     <fieldset className={`paso ${pasoUnoListo ? 'paso-completo' : ''}`}>
                         <legend className="paso-titulo">
                             <span className="paso-numero">{pasoUnoListo ? <Icono nombre="check" tamano={14} grosor={2.4} /> : 1}</span>
-                            El mensaje sospechoso
+                            {contexto === 'llamada' ? 'Lo que te dijeron' : 'El mensaje sospechoso'}
                         </legend>
+
+                        {contexto === 'llamada' && (
+                            <label className="campo-numero-reporte">
+                                <span>Número que llamó <span className="opcional">opcional</span></span>
+                                <div className="campo-numero-fila">
+                                    <Icono nombre="llamar" tamano={17} />
+                                    <input
+                                        type="tel"
+                                        inputMode="tel"
+                                        autoComplete="tel"
+                                        placeholder="Ej.: 300 123 4567"
+                                        value={numero}
+                                        onChange={e => setNumero(e.target.value)}
+                                        maxLength={40}
+                                    />
+                                </div>
+                                <small className="texto-suave">
+                                    Lo cruzamos con el registro de números reportados y los reportes de tus vecinos.
+                                    Si no lo mostró, escribe <strong>oculto</strong>.
+                                </small>
+                            </label>
+                        )}
 
                         <div className="campo-texto">
                             <textarea
                                 id="mensaje"
                                 rows={6}
-                                placeholder="Ej: Felicidades, ganaste un premio de $5.000.000 en la lotería Bogotá. Ingresa aquí www.premios-bogota.top y consigna el impuesto en Nequi 3001234567 antes de las 6pm…"
+                                placeholder={contexto === 'llamada'
+                                    ? 'Ej: Me llamaron diciendo que eran del banco, que mi cuenta estaba bloqueada y que no colgara. Me pidieron el código que llegó por SMS y me presionaron para instalarme una app…'
+                                    : 'Ej: Felicidades, ganaste un premio de $5.000.000 en la lotería Bogotá. Ingresa aquí www.premios-bogota.top y consigna el impuesto en Nequi 3001234567 antes de las 6pm…'}
                                 value={mensaje}
                                 onChange={e => setMensaje(e.target.value)}
-                                aria-label="Mensaje sospechoso"
+                                aria-label={contexto === 'llamada' ? 'Lo que te dijeron por teléfono' : 'Mensaje sospechoso'}
                             />
                             <div className="campo-texto-pie">
                                 <button type="button" className="boton-texto" onClick={pegarDelPortapapeles}>

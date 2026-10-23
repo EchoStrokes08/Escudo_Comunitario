@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "actualizado": "2026-10-23",
+  "nota": "Registro de números telefónicos del Escudo Comunitario. 'numeros_confiables' son líneas oficiales publicadas por la entidad (sirven para no marcarlas como fraude). 'numeros_reportados' son números con reportes de autoridades, entidades o de la comunidad; cada entrada conserva su fuente y su enlace para que cualquiera pueda verificarla. No se incluyen números inventados: si una fuente oficial no publica el listado, se importa con scripts/importar_numeros.py.",
+  "fuentes": [
+    {
+      "id": "policia",
+      "nombre": "Policía Nacional de Colombia",
+      "url": "https://www.policia.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "fiscalia",
+      "nombre": "Fiscalía General de la Nación",
+      "url": "https://www.fiscalia.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "gaula",
+      "nombre": "GAULA — Policía Nacional",
+      "url": "https://www.policia.gov.co/gaula",
+      "tipo": "oficial"
+    },
+    {
+      "id": "icbf",
+      "nombre": "Instituto Colombiano de Bienestar Familiar (ICBF)",
+      "url": "https://www.icbf.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "bogota",
+      "nombre": "Alcaldía Mayor de Bogotá D.C.",
+      "url": "https://www.bogota.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "sic",
+      "nombre": "Superintendencia de Industria y Comercio (SIC)",
+      "url": "https://www.sic.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "crc",
+      "nombre": "Comisión de Regulación de Comunicaciones (CRC)",
+      "url": "https://www.crcom.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "datos_abiertos",
+      "nombre": "Datos Abiertos Colombia",
+      "url": "https://www.datos.gov.co/",
+      "tipo": "oficial"
+    },
+    {
+      "id": "comunidad",
+      "nombre": "Reportes de la comunidad — Escudo Comunitario Bosa",
+      "url": "/reportar",
+      "tipo": "comunitaria"
+    }
+  ],
+  "numeros_confiables": [
+    {
+      "numero": "123",
+      "entidad": "Policía Nacional — línea de emergencias",
+      "categoria": "emergencias",
+      "fuente": "policia",
+      "url": "https://www.policia.gov.co/",
+      "nota": "Emergencias y denuncia de extorsión en curso, 24 horas."
+    },
+    {
+      "numero": "122",
+      "entidad": "Fiscalía General de la Nación — denuncias",
+      "categoria": "emergencias",
+      "fuente": "fiscalia",
+      "url": "https://www.fiscalia.gov.co/",
+      "nota": "Recepción de denuncias de delitos, incluidos los fraudes informáticos."
+    },
+    {
+      "numero": "165",
+      "entidad": "GAULA — Policía Nacional",
+      "categoria": "emergencias",
+      "fuente": "gaula",
+      "url": "https://www.policia.gov.co/gaula",
+      "nota": "Atención de extorsión y secuestro."
+    },
+    {
+      "numero": "141",
+      "entidad": "ICBF — línea de protección infantil",
+      "categoria": "emergencias",
+      "fuente": "icbf",
+      "url": "https://www.icbf.gov.co/",
+      "nota": "Protección de niñas, niños y adolescentes."
+    },
+    {
+      "numero": "195",
+      "entidad": "Alcaldía Mayor de Bogotá — Línea 195",
+      "categoria": "atencion_ciudadana",
+      "fuente": "bogota",
+      "url": "https://www.bogota.gov.co/",
+      "nota": "Atención a la ciudadanía y orientación sobre trámites distritales."
+    },
+    {
+      "numero": "119",
+      "entidad": "Bomberos Bogotá — emergencias",
+      "categoria": "emergencias",
+      "fuente": "bogota",
+      "url": "https://www.bomberosbogota.gov.co/",
+      "nota": "Emergencias por incendio o rescate."
+    },
+    {
+      "numero": "6015920400",
+      "entidad": "Superintendencia de Industria y Comercio — Bogotá",
+      "categoria": "atencion_ciudadana",
+      "fuente": "sic",
+      "url": "https://www.sic.gov.co/",
+      "nota": "Atención presencial y telefónica en Bogotá; también recibe denuncias de fraude y publicidad engañosa."
+    },
+    {
+      "numero": "018000910165",
+      "entidad": "Superintendencia de Industria y Comercio — línea gratuita nacional",
+      "categoria": "atencion_ciudadana",
+      "fuente": "sic",
+      "url": "https://www.sic.gov.co/",
+      "nota": "Línea nacional gratuita de atención al ciudadano."
+    }
+  ],
+  "numeros_reportados": []
+}

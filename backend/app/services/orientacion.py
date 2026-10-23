@@ -14,6 +14,7 @@ TIPOS_FRAUDE: dict[str, str] = {
     "phishing": "Phishing (robo de claves o datos)",
     "malware": "Malware (app o archivo que infecta tu celular)",
     "sim_swapping": "SIM swapping (robo de tu línea)",
+    "vishing": "Vishing (estafa por llamada)",
     "estafa_whatsapp": "Estafa por WhatsApp (suplantan a un conocido)",
     "suplantacion_entidad": "Suplantación de entidad",
     "premio_falso": "Premio, subsidio o sorteo falso",
@@ -33,6 +34,10 @@ COMO_FUNCIONA: dict[str, str] = {
                "leer tus SMS y códigos y manejar tu celular y tus apps del banco.",
     "sim_swapping": "Buscan que les des un código o tus datos para pasar tu número a otra SIM. Con tu línea "
                     "reciben tus códigos por SMS y recuperan tus cuentas de banco y WhatsApp.",
+    "vishing": "Te llaman haciéndose pasar por tu banco, la Policía, la Fiscalía, la DIAN o un familiar. "
+               "Usan prisa y miedo ('no cuelgue', 'su cuenta será bloqueada', 'hay un proceso en su contra') "
+               "para que dictes un código, entregues claves, instales una app de control remoto o transfieras "
+               "a una 'cuenta segura'. La llamada parece urgente y real, pero la entidad nunca pide eso.",
     "estafa_whatsapp": "Se hacen pasar por un familiar o conocido con 'número nuevo' para pedirte plata con "
                        "urgencia, o te piden el código de 6 dígitos para robarte tu WhatsApp.",
     "suplantacion_entidad": "Usan el nombre de un banco, la Policía, la Fiscalía, la DIAN u otra entidad para "
@@ -113,6 +118,28 @@ PLANES: dict[str, list[dict]] = {
          },
         _NO_CODIGOS,
         _DENUNCIAR,
+    ],
+    "vishing": [
+        {"titulo": "Cuelga y no devuelvas la llamada",
+         "detalle": "No sigas la conversación ni marques de vuelta al número que te llamó. Si dice ser tu banco "
+                    "o una entidad, cuelga y llama tú al número que aparece en la tarjeta, en la app oficial "
+                    "o en la página de la entidad.",
+         "urgente": True},
+        _NO_CODIGOS,
+        {"titulo": "No instales apps de control remoto",
+         "detalle": "Nadie de soporte, del banco ni de la Policía te pide instalar AnyDesk, TeamViewer ni "
+                    "compartir la pantalla. Si ya lo hiciste, activa el modo avión, desinstala la app y "
+                    "cambia tus claves desde otro dispositivo.",
+         "urgente": True},
+        {"titulo": "No transfieras a una 'cuenta segura'",
+         "detalle": "Los bancos no tienen cuentas seguras para 'proteger' tu plata ni te piden mover tus "
+                    "ahorros por teléfono. Si ya transferiste, llama a tu banco de inmediato y pide el "
+                    "bloqueo y la reversión."},
+        _BANCO,
+        {"titulo": "Reporta el número y guarda el certificado",
+         "detalle": "Consulta el número en el panel comunitario y repórtalo aquí. Lleva el certificado a la "
+                    "denuncia en el CAI Virtual o en la Fiscalía (línea 122): prueba qué número llamó y qué te dijo.",
+         "enlace": CAI_VIRTUAL},
     ],
     "estafa_whatsapp": [
         {"titulo": "Verifica por otro medio",

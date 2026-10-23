@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.core.config import settings
-from app.services import firebase_db
+from app.services import firebase_db, numeros
 from app.services.alertas_comunitarias import detectar_brote, emitir_alerta
 from app.services.analizador import evaluar_fraude
 from app.services.anonimizar import anonimizar_texto, enmascarar, generalizar_ubicacion
@@ -130,18 +130,30 @@ async def revisar_brote(upz: str | None, tipo: str, nivel: str) -> dict | None:
         return alerta
 
 
-async def analizar(mensaje: str, adjuntos: list[dict], *, rapido: bool = False, historial=_historial) -> dict:
+async def analizar(mensaje: str, adjuntos: list[dict], *, rapido: bool = False, historial=_historial,
+                   contexto: str = "", numero_entrante: str | None = None) -> dict:
     """
     Pasos 1-4 del flujo, sin escribir nada: IA + fuentes abiertas + riesgo, confianza y plan.
     Lo usan procesar_reporte y el script de evaluación (scripts/evaluar.py).
+
+    Si se reporta una llamada, `numero_entrante` se clasifica con el registro de
+    números reportados y con los reportes de la comunidad (services.numeros).
     """
     t = _RAPIDO if rapido else {"llm": None, "red": None}
 
     # 1-2. IA y verificación del texto escrito, en paralelo
     analisis, verif_texto = await asyncio.gather(
-        evaluar_fraude(mensaje, adjuntos, presupuesto=t["llm"]),
+        evaluar_fraude(mensaje, adjuntos, presupuesto=t["llm"], contexto=contexto),
         verificar_mensaje(mensaje, historial=historial, timeout_red=t["red"]),
     )
+
+    # 1b. Número entrante (vishing): registro oficial + reportes comunitarios
+    numero = None
+    if (numero_entrante or "").strip():
+        try:
+            numero = await asyncio.to_thread(numeros.analizar_numero, numero_entrante)
+        except Exception as error:
+            log.warning("No se pudo clasificar el número entrante: %s", error)
 
     # 3. Lo que la IA leyó en capturas/PDF/audio también se verifica, solo si trae indicadores nuevos
     leido = analisis.get("texto_detectado", "")
@@ -154,21 +166,49 @@ async def analizar(mensaje: str, adjuntos: list[dict], *, rapido: bool = False, 
     else:
         verificacion = verif_texto
 
+    # El registro de números entra como hallazgo verificable (gravedad 0: el riesgo
+    # del número ya se aplica una sola vez en puntuacion.calcular).
+    hallazgo_numero = numeros.hallazgo(numero)
+    if hallazgo_numero:
+        verificacion["hallazgos"].append(hallazgo_numero)
+        verificacion["coincidencias"] = len(verificacion["hallazgos"])
+        verificacion["coincidencias_reales"] = len([h for h in verificacion["hallazgos"]
+                                                    if not h.get("simulada")])
+
+    # El número entrante también cuenta para el historial comunitario: si no está
+    # escrito en el relato, antes no se registraba y la consulta nunca subía.
+    if numero and numero.get("valido") and numero.get("numero") not in (None, "", "oculto"):
+        clave_numero = ("telefono", numero["numero"])
+        if clave_numero not in verificacion["indicadores"]:
+            verificacion["indicadores"].append(clave_numero)
+
     # 4. Riesgo, confianza, tipo de amenaza, causas y orientación
-    puntaje = calcular(analisis, verificacion, mensaje, adjuntos)
-    tipo = tipo_final(analisis["tipo_fraude"], puntaje, verificacion["hallazgos"])
+    puntaje = calcular(analisis, verificacion, mensaje, adjuntos, numero=numero)
+    tipo = tipo_final(analisis["tipo_fraude"], puntaje, verificacion["hallazgos"], numero=numero,
+                      contexto=contexto)
     return {"analisis": analisis, "verificacion": verificacion, "puntaje": puntaje, "tipo": tipo,
-            "causas": causas_principales(analisis, verificacion["hallazgos"], tipo),
-            "plan": plan_accion(tipo, puntaje["nivel_riesgo"]), "leido": leido}
+            "causas": causas_principales(analisis, verificacion["hallazgos"], tipo, numero=numero),
+            "plan": plan_accion(tipo, puntaje["nivel_riesgo"]), "leido": leido, "numero": numero,
+            "contexto": contexto}
 
 
-def tipo_final(tipo: str, puntaje: dict, hallazgos: list[dict]) -> str:
+def tipo_final(tipo: str, puntaje: dict, hallazgos: list[dict], numero: dict | None = None,
+               contexto: str = "") -> str:
     """Tipo de amenaza: el de la IA, corregido por lo que confirmaron las fuentes abiertas."""
     if puntaje["nivel_riesgo"] < 25:
         return "legitimo"
     sugeridos = {h.get("sugiere") for h in hallazgos if not h.get("simulada")}
     if "malware" in sugeridos:
         return "malware"  # URLhaus solo lista sitios que distribuyen malware
+    if numero and (numero.get("reportado") or numero.get("nivel_riesgo", 0) >= 60):
+        # El número ya está reportado por vishing/extorsión y el relato no define
+        # otra modalidad: prima lo que dice el registro sobre el número.
+        if tipo in ("legitimo", "otro", "suplantacion_entidad") and numero.get("tipo_sugerido"):
+            return numero["tipo_sugerido"]
+        if tipo == "legitimo":
+            return "vishing"
+    if contexto == "llamada" and tipo in ("legitimo", "otro") and puntaje["nivel_riesgo"] >= 40:
+        return "vishing"  # el relato es una llamada y el riesgo no es bajo
     if tipo in ("legitimo", "otro") and "phishing" in sugeridos:
         return "phishing"
     if tipo == "legitimo" and puntaje["nivel"] != "bajo":
@@ -176,15 +216,19 @@ def tipo_final(tipo: str, puntaje: dict, hallazgos: list[dict]) -> str:
     return tipo
 
 
-def causas_principales(analisis: dict, hallazgos: list[dict], tipo: str, maximo: int = 5) -> list[dict]:
+def causas_principales(analisis: dict, hallazgos: list[dict], tipo: str, maximo: int = 5,
+                       numero: dict | None = None) -> list[dict]:
     """
     Por qué el sistema llegó a este veredicto, de lo más fuerte a lo más débil:
       1. Lo que confirmaron fuentes externas (OpenPhish, URLhaus, RDAP, reportes de vecinos…).
       2. Lo que la IA explica citando la evidencia del mensaje (o el análisis local si no hubo IA).
     """
-    if tipo == "legitimo":
+    if tipo == "legitimo" and not (numero and numero.get("reportado")):
         return []
     causas: list[dict] = []
+    if numero and numero.get("causas"):
+        for texto in numero["causas"][:2]:
+            causas.append({"texto": texto, "origen": "registro", "fuente": "Registro de números reportados"})
     externos = sorted((h for h in hallazgos if not h.get("simulada")), key=lambda h: -h.get("gravedad", 0))
     for h in externos[:2]:
         causas.append({"texto": f"{h['detalle']}: {h['valor']}", "origen": "verificado", "fuente": h["fuente"]})
@@ -207,10 +251,12 @@ def causas_principales(analisis: dict, hallazgos: list[dict], tipo: str, maximo:
 
 async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, reportante: str,
                            upz: str | None, lat: float | None, lng: float | None,
-                           rapido: bool = False) -> dict:
-    r = await analizar(mensaje, adjuntos, rapido=rapido)
+                           rapido: bool = False, contexto: str = "mensaje",
+                           numero_entrante: str | None = None) -> dict:
+    r = await analizar(mensaje, adjuntos, rapido=rapido, contexto=contexto,
+                       numero_entrante=numero_entrante)
     analisis, verificacion, puntaje = r["analisis"], r["verificacion"], r["puntaje"]
-    tipo, plan, leido, causas = r["tipo"], r["plan"], r["leido"], r["causas"]
+    tipo, plan, leido, causas, numero = r["tipo"], r["plan"], r["leido"], r["causas"], r["numero"]
     flags = analisis["flags"]
     resumen = analisis["resumen"]
 
@@ -247,6 +293,9 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "modelo": analisis.get("modelo"),
         "upz": upz, "lat": lat, "lng": lng,
         "adjuntos": adjuntos_meta,
+        "contexto": contexto,
+        "numero_entrante": (numero or {}).get("numero") if numero else numero_entrante,
+        "numero_analisis": numero,
         "estado": "registrado",
     }
     publico = {
@@ -264,6 +313,12 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "upz": upz, "lat": lat_pub, "lng": lng_pub,
         "adjuntos": len(adjuntos),
         "con_audio": any(a["mime"].startswith("audio/") for a in adjuntos),
+        "contexto": contexto,
+        "numero": (enmascarar(numero["numero"]) if numero and numero.get("numero") not in ("", "oculto") else ""),
+        "numero_analisis": ({"nivel": numero.get("nivel"), "nivel_riesgo": numero.get("nivel_riesgo"),
+                             "reportado": numero.get("reportado"),
+                             "reportes_comunidad": numero.get("reportes_comunidad", 0)}
+                            if numero else None),
         "motor": "ia" if analisis.get("motor") == "llm" else "local",
         "anclaje": "en_proceso",
     }
@@ -309,6 +364,8 @@ async def procesar_reporte(*, mensaje: str, adjuntos: list[dict], canal: str, re
         "resumen": resumen,
         "plan_accion": plan,
         "texto_detectado": leido,
+        "contexto": contexto,
+        "numero_analisis": numero,
         "verificacion": {k: v for k, v in verificacion_guardada.items()},
         "comunidad": verificacion["comunidad"],
         "motor": analisis.get("motor", ""),

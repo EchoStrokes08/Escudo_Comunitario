@@ -154,6 +154,8 @@ export default function Veredicto({ resultado: r, onNuevo }) {
     const [copiado, setCopiado] = useState(false)
     const [sello, setSello] = useState(r.anclaje || { estado: 'en_proceso' })
     const nivel = nivelRiesgo(r.nivel_riesgo)
+    const numero = r.numero_analisis || null
+    const nivelNumero = numero ? nivelRiesgo(numero.nivel_riesgo) : null
 
     // El veredicto se muestra al instante; el sello en Bitcoin (~2 s) se pide justo después
     useEffect(() => {
@@ -174,6 +176,7 @@ export default function Veredicto({ resultado: r, onNuevo }) {
         TITULARES[nivel.id] + '.',
         `Riesgo ${r.nivel_riesgo} por ciento, confianza ${r.nivel_confianza}.`,
         r.tipo_fraude?.id !== 'legitimo' ? `Tipo de amenaza: ${r.tipo_fraude?.nombre}.` : '',
+        r.numero_analisis ? `El número que llamó tiene riesgo ${r.numero_analisis.nivel}.` : '',
         r.resumen,
         r.causas?.length ? `La razón principal: ${r.causas[0].texto}.` : '',
         plan.length ? 'Qué hacer ahora:' : '',
@@ -219,6 +222,25 @@ export default function Veredicto({ resultado: r, onNuevo }) {
                     <Icono nombre="alerta" tamano={16} />
                     <span>La IA no respondió a tiempo: este veredicto viene del análisis local de respaldo, con confianza limitada.</span>
                 </p>
+            )}
+
+            {numero && nivelNumero && (
+                <div className={`numero-veredicto ${nivelNumero.clase}`}>
+                    <div className="numero-veredicto-datos">
+                        <span className="eyebrow"><Icono nombre="llamar" tamano={13} /> Número que llamó</span>
+                        <strong className="mono">{numero.visible || 'Número oculto'}</strong>
+                        <small className="texto-suave">
+                            {numero.tipo_linea}
+                            {numero.reportes_comunidad > 0 && ` · ${numero.reportes_comunidad} reporte${numero.reportes_comunidad === 1 ? '' : 's'} previo${numero.reportes_comunidad === 1 ? '' : 's'} de vecinos`}
+                        </small>
+                    </div>
+                    <div className="numero-veredicto-acciones">
+                        <span className={`chip chip-${nivelNumero.id}`}>Riesgo {nivelNumero.etiqueta.toLowerCase()} · {numero.nivel_riesgo}/100</span>
+                        <Link className="boton-texto" to={`/numero?numero=${encodeURIComponent(numero.numero || 'oculto')}`}>
+                            <Icono nombre="buscar" tamano={14} /> Ver el número en detalle
+                        </Link>
+                    </div>
+                </div>
             )}
 
             {/* Qué hacer ahora */}

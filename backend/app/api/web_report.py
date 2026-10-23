@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.limite import limitar_por_ip
-from app.services import firebase_db
+from app.services import firebase_db, numeros
 from app.services.anonimizar import seudonimo
 from app.services.archivos import AdjuntoInvalidoError, preparar_adjuntos
 from app.services.geolocalizacion import UPZ_BOSA, dentro_de_bosa, validar_o_asignar
@@ -42,6 +42,10 @@ class ReporteWeb(BaseModel):
     lat: float | None = None
     lng: float | None = None
     canal: str = "web"
+    contexto: str = Field("mensaje", description="'mensaje' o 'llamada' (vishing)")
+    numero_entrante: str | None = Field(
+        None, max_length=40,
+        description="Número que llamó (para consultar el registro de números reportados)")
 
 
 @router.get("/reporte-web")
@@ -65,6 +69,11 @@ async def reportar_mensaje(reporte: ReporteWeb, request: Request):
     if len(mensaje) < 10 and not adjuntos_crudos:
         raise HTTPException(status_code=400, detail="Envía al menos un mensaje (10 caracteres), un archivo o una nota de voz.")
 
+    numero_entrante = (reporte.numero_entrante or "").strip() or None
+    if numero_entrante and not numeros.normalizar_numero(numero_entrante):
+        raise HTTPException(status_code=400,
+                            detail="El número no es válido. Escríbelo con dígitos o escribe \"oculto\".")
+
     try:
         adjuntos = preparar_adjuntos(adjuntos_crudos)
     except AdjuntoInvalidoError as error:
@@ -80,6 +89,8 @@ async def reportar_mensaje(reporte: ReporteWeb, request: Request):
         # El reporte web es anónimo: el seudónimo de la IP solo sirve para contar abusos
         reportante=seudonimo(f"ip:{ip}") if ip else "anonimo",
         upz=upz or "Bosa Central", lat=lat, lng=lng,
+        contexto="llamada" if reporte.contexto == "llamada" else "mensaje",
+        numero_entrante=numero_entrante,
     )
     return {
         **resultado,

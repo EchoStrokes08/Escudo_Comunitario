@@ -11,6 +11,7 @@ const Certificado = lazy(() => import('./pages/Certificado.jsx'))
 const Autoridades = lazy(() => import('./pages/Autoridades.jsx'))
 const Chat = lazy(() => import('./pages/Chat.jsx'))
 const Cartel = lazy(() => import('./pages/Cartel.jsx'))
+const ConsultarNumero = lazy(() => import('./pages/ConsultarNumero.jsx'))
 
 function App() {
     const ubicacion = useLocation()
@@ -34,6 +35,9 @@ function App() {
                     <NavLink to="/chat" className="nav-enlace">
                         <Icono nombre="mensaje" tamano={16} /> <span>Chat</span>
                     </NavLink>
+                    <NavLink to="/numero" className="nav-enlace">
+                        <Icono nombre="llamar" tamano={16} /> <span>Número</span>
+                    </NavLink>
                     <NavLink to="/verificar" className="nav-enlace">
                         <Icono nombre="candado" tamano={16} /> <span>Verificar</span>
                     </NavLink>
@@ -55,6 +59,7 @@ function App() {
                         <Route path="/autoridades" element={<Autoridades />} />
                         <Route path="/chat" element={<Chat />} />
                         <Route path="/cartel" element={<Cartel />} />
+                        <Route path="/numero" element={<ConsultarNumero />} />
                         <Route path="*" element={<Dashboard />} />
                     </Routes>
                 </Suspense>
