@@ -7,10 +7,9 @@ import Icono from './Icono.jsx'
 /** Radio del punto de calor proporcional al nivel de riesgo (en metros): de 100 m (0%) a 300 m (100%). */
 const radioPorRiesgo = (riesgo = 0) => 100 + (riesgo * 2)
 
-/** Niveles de riesgo que se pueden mostrar u ocultar en el mapa desde la leyenda. */
+/** Niveles de riesgo que se dibujan en el mapa; la leyenda permite mostrar u ocultar cada uno. */
 const NIVELES = [
     { id: 'alto', etiqueta: 'Alto' },
-    { id: 'medio', etiqueta: 'Medio' },
     { id: 'bajo', etiqueta: 'Bajo' },
 ]
 
@@ -65,22 +64,32 @@ const PuntosCalor = memo(function PuntosCalor({ puntos, seleccionadoId, onSelecc
 export default function MapaCalor({ reportes = [], cargando = false, seleccionadoId = null, onSeleccionar }) {
     const mapa = useRef(null)
     const circulos = useRef({})
-    const [visibles, setVisibles] = useState(() => ({ alto: true, medio: true, bajo: true }))
+    const [visibles, setVisibles] = useState(() => ({ alto: true, bajo: true }))
 
-    // Primero descartamos los sin coordenadas; luego se filtra por los niveles visibles en la leyenda
+    // El mapa solo dibuja niveles alto y bajo: los medios se quedan en la lista y estadísticas
+    const esDibujable = p => {
+        const { id } = nivelRiesgo(p.nivel_riesgo)
+        return id !== 'medio' && visibles[id]
+    }
+
+    // Primero descartamos los sin coordenadas; luego se ocultan medios y los niveles apagados en la leyenda
     const coordenados = useMemo(() => reportes.filter(tieneCoordenadas), [reportes])
-    const puntos = useMemo(
-        () => coordenados.filter(p => visibles[nivelRiesgo(p.nivel_riesgo).id]),
-        [coordenados, visibles],
+    const programados = useMemo(
+        () => coordenados.filter(p => nivelRiesgo(p.nivel_riesgo).id !== 'medio'),
+        [coordenados],
     )
+    const puntos = useMemo(() => programados.filter(esDibujable), [programados, visibles])
     // Orden de dibujo: los círculos grandes (riesgo alto) quedan debajo para no tapar los pequeños
     const ordenados = useMemo(
         () => [...puntos].sort((a, b) => b.nivel_riesgo - a.nivel_riesgo),
         [puntos],
     )
     const conteos = useMemo(() => {
-        const base = { alto: 0, medio: 0, bajo: 0 }
-        for (const p of coordenados) base[nivelRiesgo(p.nivel_riesgo).id] += 1
+        const base = { alto: 0, bajo: 0 }
+        for (const p of coordenados) {
+            const { id } = nivelRiesgo(p.nivel_riesgo)
+            if (id in base) base[id] += 1
+        }
         return base
     }, [coordenados])
     const exactos = useMemo(() => puntos.filter(p => !p.aproximada).length, [puntos])
@@ -160,7 +169,7 @@ export default function MapaCalor({ reportes = [], cargando = false, seleccionad
             <div className="mapa-contador">
                 {cargando
                     ? <><span className="spinner spinner-pequeno" /> Cargando reportes…</>
-                    : <><strong>{puntos.length}</strong>{puntos.length < coordenados.length ? ` de ${coordenados.length}` : ''} reportes en el mapa · {exactos} con GPS exacto</>}
+                    : <><strong>{puntos.length}</strong>{puntos.length < programados.length ? ` de ${programados.length}` : ''} reportes en el mapa · {exactos} con GPS exacto</>}
             </div>
         </div>
     )
