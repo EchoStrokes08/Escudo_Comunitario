@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Circle, Polygon, Popup } from 'react-leaflet'
 import { CENTRO_BOSA, MAX_BOUNDS, VERTICES_BOSA } from '../data/bosaPolygon.js'
 import { nivelRiesgo, TONOS } from '../utils/riesgo.js'
@@ -6,6 +6,13 @@ import Icono from './Icono.jsx'
 
 /** Radio del punto de calor proporcional al nivel de riesgo (en metros): de 100 m (0%) a 300 m (100%). */
 const radioPorRiesgo = (riesgo = 0) => 100 + (riesgo * 2)
+
+/** Niveles de riesgo que se pueden mostrar u ocultar en el mapa desde la leyenda. */
+const NIVELES = [
+    { id: 'alto', etiqueta: 'Alto' },
+    { id: 'medio', etiqueta: 'Medio' },
+    { id: 'bajo', etiqueta: 'Bajo' },
+]
 
 // Los reportes llegan normalizados desde services/alertas.js: siempre con lat/lng dentro de Bosa
 export const tieneCoordenadas = (r) => typeof r.lat === 'number' && typeof r.lng === 'number'
@@ -58,11 +65,30 @@ const PuntosCalor = memo(function PuntosCalor({ puntos, seleccionadoId, onSelecc
 export default function MapaCalor({ reportes = [], cargando = false, seleccionadoId = null, onSeleccionar }) {
     const mapa = useRef(null)
     const circulos = useRef({})
+    const [visibles, setVisibles] = useState(() => ({ alto: true, medio: true, bajo: true }))
 
-    const puntos = useMemo(() => reportes.filter(tieneCoordenadas), [reportes])
+    // Primero descartamos los sin coordenadas; luego se filtra por los niveles visibles en la leyenda
+    const coordenados = useMemo(() => reportes.filter(tieneCoordenadas), [reportes])
+    const puntos = useMemo(
+        () => coordenados.filter(p => visibles[nivelRiesgo(p.nivel_riesgo).id]),
+        [coordenados, visibles],
+    )
+    // Orden de dibujo: los círculos grandes (riesgo alto) quedan debajo para no tapar los pequeños
+    const ordenados = useMemo(
+        () => [...puntos].sort((a, b) => b.nivel_riesgo - a.nivel_riesgo),
+        [puntos],
+    )
+    const conteos = useMemo(() => {
+        const base = { alto: 0, medio: 0, bajo: 0 }
+        for (const p of coordenados) base[nivelRiesgo(p.nivel_riesgo).id] += 1
+        return base
+    }, [coordenados])
     const exactos = useMemo(() => puntos.filter(p => !p.aproximada).length, [puntos])
 
+    const cambiarNivel = id => setVisibles(v => ({ ...v, [id]: !v[id] }))
+
     // Al seleccionar un reporte desde la lista, el mapa vuela hasta él y abre su ficha
+    // (si el nivel está oculto en la leyenda, el reporte no está en "puntos" y no vuela)
     useEffect(() => {
         const destino = puntos.find(p => p.id === seleccionadoId)
         const instancia = mapa.current
@@ -103,17 +129,28 @@ export default function MapaCalor({ reportes = [], cargando = false, seleccionad
                 <Polygon positions={VERTICES_BOSA} interactive={false} pathOptions={ESTILO_FRONTERA} />
 
                 <PuntosCalor
-                    puntos={puntos}
+                    puntos={ordenados}
                     seleccionadoId={seleccionadoId}
                     onSeleccionar={onSeleccionar}
                     circulos={circulos}
                 />
             </MapContainer>
 
-            <div className="mapa-leyenda">
-                <span><i className="punto-leyenda fondo-alto" /> Alto</span>
-                <span><i className="punto-leyenda fondo-medio" /> Medio</span>
-                <span><i className="punto-leyenda fondo-bajo" /> Bajo</span>
+            {/* Leyenda interactiva: cada nivel se puede mostrar u ocultar en el mapa */}
+            <div className="mapa-leyenda" role="group" aria-label="Mostrar u ocultar niveles de riesgo">
+                {NIVELES.map(nivel => (
+                    <button
+                        key={nivel.id}
+                        type="button"
+                        className={`leyenda-nivel ${visibles[nivel.id] ? 'activa' : 'inactiva'}`}
+                        aria-pressed={visibles[nivel.id]}
+                        title={visibles[nivel.id] ? `Ocultar riesgo ${nivel.etiqueta.toLowerCase()}` : `Mostrar riesgo ${nivel.etiqueta.toLowerCase()}`}
+                        onClick={() => cambiarNivel(nivel.id)}
+                    >
+                        <i className={`punto-leyenda fondo-${nivel.id}`} /> {nivel.etiqueta}
+                        <span className="leyenda-conteo">{conteos[nivel.id]}</span>
+                    </button>
+                ))}
             </div>
 
             <button type="button" className="mapa-recentrar" onClick={recentrar} title="Ver toda la localidad">
@@ -123,7 +160,7 @@ export default function MapaCalor({ reportes = [], cargando = false, seleccionad
             <div className="mapa-contador">
                 {cargando
                     ? <><span className="spinner spinner-pequeno" /> Cargando reportes…</>
-                    : <><strong>{puntos.length}</strong> reportes en el mapa · {exactos} con GPS exacto</>}
+                    : <><strong>{puntos.length}</strong>{puntos.length < coordenados.length ? ` de ${coordenados.length}` : ''} reportes en el mapa · {exactos} con GPS exacto</>}
             </div>
         </div>
     )
